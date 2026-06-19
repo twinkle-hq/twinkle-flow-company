@@ -1,0 +1,217 @@
+name: test-and-iterate
+description: >
+  Test the created configuration by running realistic scenarios in sandbox,
+  comparing agent behavior with and without the configuration (baseline),
+  grading results against assertions, aggregating benchmarks, analyzing patterns,
+  and iteratively improving until quality is satisfactory.
+  Adapted from the skill-creator evaluation cycle.
+trigger: >
+  Configuration has been reviewed and approved, and needs real-world testing
+  in sandbox before being considered production-ready
+complexity: medium
+outputs:
+  - test_results
+  - benchmark_report
+  - improvements_applied
+
+hard_gates:
+  - before: run-tests
+    rule: >
+      Test cases must exist (from Brief or designed now). Do not run tests
+      without specific prompts, expected outcomes, and verification criteria.
+  - before: grade
+    rule: >
+      All test runs (both with-config and baseline) must have completed before
+      grading. Do not grade partial results.
+  - before: improve
+    rule: >
+      Analysis must be complete before making improvements. Do not change
+      configuration based on gut feeling — use evidence from grading and analysis.
+
+anti_rationalization:
+  title: "Shortcuts that undermine testing quality"
+  entries:
+    - thought: "The review passed so the configuration should work in practice"
+      reality: "Review checks structure and design. Only real execution reveals runtime failures — wrong MCP tools, missing context, bad phase flow, agent rationalization."
+    - thought: "One test case is enough to verify the configuration works"
+      reality: "A single test can pass by luck. Multiple test cases with different scenarios reveal systematic issues. Use at least 2 from the Brief."
+    - thought: "I don't need a baseline — just test with the configuration"
+      reality: "Without baseline, you can't measure improvement. The with/without comparison is what proves the configuration adds value."
+    - thought: "The test passed, the agent is ready for production"
+      reality: "A 'done' status doesn't mean the agent worked well. Read the logs: did it follow phases? Skip steps? Rationalize shortcuts? Use the right tools? A lucky success is not a reliable process."
+    - thought: "I'll fix the configuration and skip re-testing — the fix is obviously correct"
+      reality: "Every fix needs re-testing. Obvious fixes can break other test cases. Run the full suite again."
+    - thought: "Assertions are overkill for this, I can just eyeball the results"
+      reality: "Assertions make evaluation repeatable and objective. Without them, you'll miss regressions in future iterations."
+
+phases:
+  prepare-tests:
+    tools: [create_worker, Bash, Read, Glob]
+    goal: "Set up test environment and finalize test cases"
+    actions:
+      - text: "Read test cases from the Brief (injected from Job 1 dependency)"
+        why: "Test cases were designed during requirements gathering. They reflect the user's definition of success."
+      - "If Brief test cases are insufficient, design additional ones — but prefer the originals"
+      - text: >
+          For each test case, prepare:
+          - Realistic prompt (what a user would actually type)
+          - Expected outcome (specific artifacts, behaviors, outputs)
+          - Assertions (concrete, verifiable criteria — not subjective)
+        why: "Vague test cases produce vague results. Specific assertions enable objective grading."
+      - "Prepare the sandbox environment: identify which worker role/plugins to test with"
+    gate: "Test cases finalized with prompts, expected outcomes, and assertions. Sandbox environment ready."
+    next: run-tests
+
+  run-tests:
+    tools: [create_worker, start_worker, create_task]
+    goal: "Execute test cases with configuration and baseline in parallel"
+    actions:
+      - text: >
+          For each test case, run TWO tests in parallel:
+          1. With-config: worker with the new configuration (role/plugins)
+          2. Baseline: worker without the configuration (or with previous version)
+          Launch all runs at once — don't wait for one to finish before starting the next.
+        why: "Parallel execution saves time. With/without comparison is essential to prove the configuration adds value."
+      - "For each run: create_worker with appropriate config, create_task with test prompt, start_worker"
+      - "Set reasonable timeouts (10-15 minutes per test)"
+      - "Save results to organized workspace: iteration-{N}/eval-{ID}/{with_config|baseline}/"
+    gate: "All test runs launched (both with-config and baseline for each test case)"
+    next: draft-assertions
+
+  draft-assertions:
+    goal: "While tests run, formalize assertions for each test case"
+    actions:
+      - text: >
+          For each test case, write concrete assertions:
+          - Did the agent produce the expected outputs?
+          - Did it follow the defined phases in order?
+          - Did it use the specified MCP tools?
+          - Are the outputs correct (not just present)?
+          - Did it avoid known anti-patterns (skipping steps, rationalizing)?
+        why: "Assertions must be objectively verifiable. 'Looks good' is not an assertion. 'result.md contains status: done and output X exists' is."
+      - "Good assertions are discriminating — they pass when the config works, fail when it doesn't"
+      - "Avoid assertions that are trivially satisfied (checking file exists but not content)"
+      - "Save assertions alongside test cases for grading"
+    gate: "Assertions written for each test case, objectively verifiable"
+    next: collect-results
+
+  collect-results:
+    tools: [get_worker_status, get_task_result, get_task_logs, stop_worker]
+    goal: "Collect results from all test runs"
+    actions:
+      - "Wait for all test runs to complete (poll get_worker_status)"
+      - text: "For each completed run: get_task_result for outcomes, get_task_logs for behavior analysis"
+        why: "Results show what happened. Logs show HOW it happened — crucial for identifying rationalization and skipped steps."
+      - "Save results, logs, and timing data to workspace directories"
+      - "Stop and clean up all test workers"
+    gate: "All results collected, all test workers cleaned up"
+    next: grade
+
+  grade:
+    goal: "Evaluate each test run against assertions"
+    actions:
+      - text: >
+          For each test run (with-config and baseline), evaluate every assertion:
+          - Passed: assertion criteria met, with evidence
+          - Failed: assertion criteria not met, with explanation of what went wrong
+        why: "Grading must be evidence-based. Every verdict needs proof from results or logs."
+      - "For with-config runs: also check log quality — did the agent follow phases? skip steps? rationalize?"
+      - "For baseline runs: grade the same assertions to establish comparison baseline"
+      - "Save grading results per run"
+    gate: "All runs graded with evidence-based verdicts for every assertion"
+    next: aggregate-analyze
+
+  aggregate-analyze:
+    goal: "Compile benchmark and analyze patterns"
+    actions:
+      - text: >
+          Aggregate results into a benchmark:
+          - Pass rate per configuration (with-config vs baseline)
+          - Time and token usage per configuration
+          - Delta between configurations (does the config improve things?)
+        why: "Aggregated metrics reveal whether the configuration actually helps — not just individual test results."
+      - text: >
+          Analyst pass — look for patterns the aggregate stats might hide:
+          - Assertions that always pass regardless of config (non-discriminating — fix the assertion)
+          - High-variance results (possibly flaky test or inconsistent agent behavior)
+          - Time/token tradeoffs (does the config make the agent slower but more correct?)
+          - Tests where baseline outperformed config (configuration is hurting, not helping)
+        why: "Aggregate stats can mask problems. The analyst pass surfaces what averages hide."
+      - "Produce benchmark summary with key findings"
+    gate: "Benchmark compiled, analyst observations documented"
+    next: improve
+
+  improve:
+    max_iterations: 3
+    goal: "Fix configuration issues based on test evidence and iterate"
+    actions:
+      - text: >
+          Based on grading and analysis, identify what to fix:
+          - Failed assertions → which phase or gate caused the failure?
+          - Skipped steps in logs → strengthen anti-rationalization or add hard gates
+          - Wrong tool usage → clarify tool references in phase definitions
+          - Missing outputs → verify output declarations match actual production
+        why: "Improvements must be evidence-based, not speculative. Every change should trace to a specific test failure."
+      - text: "Apply fixes to the YAML configuration"
+        why: "Change the minimum needed to address the failure. Over-fixing introduces new risks."
+      - text: "Re-validate all modified entities (flows lint, flows reliability <task>)"
+        why: "Fixes can break validation. Catch issues before re-testing."
+      - text: "Re-run all test cases into a new iteration-{N+1}/ directory"
+        why: "Every fix needs re-testing. The improvement cycle continues until metrics are satisfactory."
+      - type: decide
+        high_confidence: "All assertions pass, metrics improved over baseline → ready for human review"
+        low_confidence: "Still failing assertions or baseline outperforms → continue iteration"
+    gate: "Configuration improved, re-tested, and metrics are satisfactory OR iteration limit reached"
+    next: finalize
+
+  finalize:
+    goal: "Produce final test report and commit"
+    actions:
+      - "Compile final benchmark report: iterations run, pass rates, improvements applied, remaining issues"
+      - "git commit all configuration changes"
+      - type: write_result
+        status: done
+        summary: "Testing complete after {N} iterations. Pass rate: {rate}%. Config vs baseline delta: {delta}. Improvements: {list}"
+    gate: "Final report written, changes committed"
+    next: null
+
+sections:
+  - name: "Writing Good Assertions"
+    content: |
+      Good assertions are:
+      - **Objectively verifiable**: can be checked programmatically or by reading specific outputs
+      - **Discriminating**: pass when config works, fail when it doesn't (if baseline also passes, the assertion doesn't test the config)
+      - **Specific**: check concrete criteria, not vague quality
+
+      Examples of good assertions:
+      - "result.md exists and contains status: done"
+      - "output file X was created and contains section Y"
+      - "agent used tool Z at least once (visible in logs)"
+      - "all phases in the task were visited (log shows phase transitions)"
+
+      Examples of bad assertions:
+      - "output looks correct" (subjective)
+      - "file exists" without checking content (trivially satisfied)
+      - "agent performed well" (not verifiable)
+
+  - name: "Interpreting Baseline Comparison"
+    content: |
+      The baseline comparison answers: "does this configuration actually help?"
+
+      **Config wins**: pass rate higher, agent followed phases, used right tools → configuration adds value
+      **Tie**: both pass at similar rates → configuration might not be needed, or assertions aren't discriminating
+      **Baseline wins**: agent performed better WITHOUT the config → configuration is overconstrained, confusing, or has bugs
+
+      If baseline wins, investigate:
+      - Is the config making the agent overthink simple steps?
+      - Are phases too granular, causing the agent to waste time?
+      - Are anti-rationalization entries creating confusion instead of preventing shortcuts?
+      - Are hard gates blocking valid approaches?
+
+terminal_state:
+  description: >
+    Configuration tested with realistic scenarios, compared against baseline,
+    graded with objective assertions, benchmark compiled, improvements applied
+    iteratively. Final report documents pass rates, iterations, and remaining issues.
+  invoked_by:
+    - flow-creation

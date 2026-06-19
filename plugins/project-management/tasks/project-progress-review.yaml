@@ -1,0 +1,63 @@
+name: project-progress-review
+description: "Deep review of In Progress projects — verify current tasks are sufficient for KPI achievement, create additional tasks if needed"
+complexity: medium
+
+outputs:
+  - projects_reviewed
+  - tasks_created
+  - status_updates
+
+hard_gates:
+  - before: act
+    rule: "New tasks MUST be created via create-worker-task capability with full review loop. No shortcuts."
+
+anti_rationalization:
+  title: "Progress review shortcuts"
+  entries:
+    - thought: "Tasks are in progress, the project is moving — no action needed"
+      reality: "Movement != sufficiency. Check if COMPLETED + REMAINING tasks actually cover KPIs."
+    - thought: "I already reviewed this project recently, nothing changed"
+      reality: "Check journal for when you last reviewed. If tasks completed since then, re-evaluate coverage."
+
+phases:
+  scan:
+    goal: "Collect state of all In Progress projects"
+    tools: [list_projects, get_project, list_issues, journal_search]
+    actions:
+      - "list_projects — find all In Progress projects"
+      - "For each: read KPIs from project description, list_issues for all project tasks"
+      - "journal_search: past progress reviews of these projects — gaps found, additional tasks created, to avoid duplication"
+      - type: verify
+        check: "At least one In Progress project found. If none — write result early with status done, no projects to review."
+        on_fail: "No In Progress projects — skip to write_result"
+    gate: "Complete state of each project: tasks, statuses, KPIs"
+    next: evaluate
+
+  evaluate:
+    goal: "Check task sufficiency for each project"
+    actions:
+      - "For each project: which tasks Done, in progress, not started?"
+      - "Current task set (including pending) sufficient for ALL KPIs?"
+      - type: decide
+        high_confidence: "Tasks sufficient — proceed with status update only"
+        low_confidence: "Gaps found — define additional tasks needed"
+    gate: "For each project: sufficient or needs additions"
+    next: act
+
+  act:
+    goal: "Create missing tasks and update progress"
+    tools: [save_status_update]
+    actions:
+      - text: "If additional tasks needed → create via create-worker-task capability"
+        why: "Mandatory quality gate for every task creation"
+      - "save_status_update on each project: N/M tasks done, K new added, progress estimate toward KPIs"
+      - type: write_result
+        status: done
+        summary: "Progress review complete — N projects reviewed, M new tasks created"
+    gate: "All projects have status updates, new tasks created where needed"
+    next: null
+
+terminal_state:
+  description: "All In Progress projects reviewed. Gaps in KPI coverage identified and filled with new tasks. Status updates written."
+  invoked_by:
+    - project-progress-review-flow

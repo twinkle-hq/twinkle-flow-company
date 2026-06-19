@@ -1,0 +1,7 @@
+[package]
+name = "artme-dev/twinkle-flow-company"
+version = "v0.1.0"
+
+[exports]
+plugins = "*"
+roles = "*"

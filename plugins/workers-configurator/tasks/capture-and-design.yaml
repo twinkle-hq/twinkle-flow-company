@@ -1,0 +1,175 @@
+name: capture-and-design
+description: >
+  Capture requirements for a new automated process, inventory existing system entities,
+  collect human input, design the entity map (tasks, flows, plugins, MCP), formulate
+  test cases, and compose a self-contained Brief artifact for drafting.
+trigger: >
+  User asks to create a new automated process, design a flow from scratch, automate
+  a multi-step workflow, or build a new agent configuration end-to-end
+complexity: complex
+outputs:
+  - brief
+
+hard_gates:
+  - before: design
+    rule: >
+      Must have collected human input via gather-input before designing.
+      Do not design based on assumptions — the user must confirm requirements,
+      especially triggers, success criteria, and constraints.
+  - before: compose-brief
+    rule: >
+      Entity map must include dependency graph and explicit creation order.
+      Every entity must trace back to a requirement. No entity without justification.
+  - before: compose-brief
+    rule: >
+      Must have at least 2 realistic test cases with expected outcomes.
+      Test cases are part of requirements, not an afterthought.
+
+anti_rationalization:
+  title: "Rushing past requirements to start building"
+  entries:
+    - thought: "The request is clear enough, I don't need to ask the user questions"
+      reality: "You always need to verify your understanding. What seems clear often has ambiguous triggers, unstated constraints, or implicit assumptions about tools and success criteria."
+    - thought: "I'll skip the inventory since I'm creating everything from scratch"
+      reality: "Always check what exists. Reusable entities save work and prevent duplication. Even 'from scratch' requests often overlap with existing capabilities."
+    - thought: "Test cases can be figured out later during the testing phase"
+      reality: "Test cases are part of requirements. Formulating them now forces clarity about what success looks like. Job 4 depends on these directly."
+    - thought: "The Brief doesn't need all those sections, a quick summary is enough"
+      reality: "The Brief is a contract. The next session works ONLY from the Brief. Missing context means missing entities or wrong design decisions in drafting."
+    - thought: "I know what entities are needed, I can design without asking the user"
+      reality: "Design decisions about decomposition, triggers, and complexity need user input. You can propose, but the user must confirm."
+
+phases:
+  analyze-request:
+    skills: [system-model]
+    goal: "Parse the incoming request and form initial understanding"
+    actions:
+      - text: "Read the request carefully. What process does the user want to automate?"
+        why: "Misunderstanding the core intent leads to a Brief that solves the wrong problem."
+      - "Identify the scope: is this a single task, a multi-job flow, or a full plugin with multiple flows?"
+      - "Identify initial signals: what triggers the process? what tools might be needed? what is the desired outcome?"
+      - "Note what is explicit vs what you are assuming — assumptions become questions for the user"
+    gate: "Can articulate what the user wants to automate, initial scope estimate, and list of assumptions to verify"
+    next: inventory
+
+  inventory:
+    tools: [Read, Glob]
+    goal: "Collect system context — what already exists that is relevant"
+    actions:
+      - text: "Inspect plugins/*/{tasks,flows}, roles/, mcp/ for the full local inventory of existing entities"
+        why: "Reuse is better than duplication. Knowing what exists shapes both the questions and the design."
+      - "For each requirement signal, check: existing MCP entity? existing plugin? existing task? existing flow?"
+      - "Note what can be reused as-is, what needs adaptation, what must be created new"
+      - text: "Check for naming conflicts — ensure planned entity names don't clash with existing ones"
+        why: "Name conflicts cause silent failures or confusing behavior at runtime."
+    gate: "Complete inventory with reuse/create decisions for each identified capability need"
+    next: collect-input
+
+  collect-input:
+    type: task
+    task: gather-input
+    next: design
+
+  design:
+    goal: "Decompose requirements into a complete entity map"
+    actions:
+      - text: >
+          Based on user answers and inventory, design the entity map:
+          1. What tasks are needed? For each: name, description, complexity estimate, key phases (at least phase names and goals), outputs
+          2. How do tasks connect into flows? For each flow: name, trigger type (schedule/linear/webhook), job graph with dependencies
+          3. What plugin bundles these? Name, MCP refs, skills, capabilities, hooks
+          4. Are new MCP entities needed? Name, description, service URL
+        why: "The entity map is the blueprint. Every entity created in drafting traces back to this design."
+      - text: "Build the dependency graph: which entities depend on which? What is the creation order?"
+        why: "Wrong creation order causes validation failures. MCP before plugins, tasks before flows."
+      - "For each task, estimate complexity: simple (1-2 phases), medium (3-5 phases), complex (5+ phases or significant judgment), critical (affects system integrity)"
+      - text: "Apply the decomposition principle: split into jobs only where a self-contained artifact naturally forms. Don't split by activity, split by artifact boundary."
+        why: "This is a core principle. Jobs split at artifact boundaries preserve context quality. Splitting by activity loses context between sessions."
+      - "Verify: does every entity trace back to a requirement? Remove any entity that doesn't serve a stated need."
+    gate: "Complete entity map with dependency graph, creation order, and all entities justified by requirements"
+    next: design-test-cases
+
+  design-test-cases:
+    goal: "Formulate realistic test scenarios for the configuration"
+    actions:
+      - text: >
+          Create 2-3 realistic test cases — what a real user would ask an agent
+          with this configuration to do. Each test case needs:
+          - A realistic prompt (the kind of thing a real user would type)
+          - Expected outcome (what should happen, what artifacts should be produced)
+          - Key behaviors to verify (did the agent follow phases? use the right tools? produce correct outputs?)
+        why: "Test cases formulated now force clarity about success criteria. They're used directly by Job 4 for sandbox testing."
+      - "Make test cases representative of the main workflow, not edge cases"
+      - "Include at least one test case that exercises the most complex task in the flow"
+    gate: "At least 2 test cases with prompts, expected outcomes, and verification criteria"
+    next: compose-brief
+
+  compose-brief:
+    goal: "Assemble the self-contained Brief document"
+    actions:
+      - text: >
+          Compose the Brief following the standard format:
+
+          Human-readable part:
+          1. Context — what we're automating, why, what problem we're solving
+          2. Requirements — collected from user (triggers, tools, success criteria, constraints)
+          3. Inventory — what exists, what we reuse
+          4. Solution Overview — end-to-end process from user's perspective, no entity details
+          5. Flow Description — jobs in words (what each does, artifacts between them, review gates)
+          6. Task Descriptions — for each task in prose (what it does, why, phases and their purpose)
+
+          Structured part:
+          7. Entity Map — formalized specs in YAML blocks
+          8. Creation Order — dependency-derived order
+
+          Verification part:
+          9. Test Cases — realistic scenarios with expected outcomes
+          10. Design Decisions — why this decomposition, alternatives considered
+        why: "The Brief is the contract between this job and the drafting job. Missing sections mean missing entities or wrong decisions downstream."
+      - text: "Verify self-containment: could someone with no context about this conversation produce the correct YAML files from this Brief alone?"
+        why: "The next session has ONLY the Brief. If the answer is no, add what's missing."
+      - "Save the Brief as a markdown file in the task output"
+      - type: write_result
+        status: done
+        summary: "Brief composed for {process_name}: {N} tasks, {M} flows, {K} plugins planned"
+    gate: "Brief is complete, self-contained, and saved as output artifact"
+    next: null
+
+sections:
+  - name: "Questions to Ask the User"
+    content: |
+      When formulating questions for gather-input, cover these areas:
+
+      **Process understanding:**
+      - What exactly should happen from start to finish?
+      - What triggers this process? (event, schedule, manual request)
+      - What is the expected end result? What artifacts are produced?
+
+      **Tools and integrations:**
+      - What external services are involved? (Linear, Slack, APIs)
+      - What MCP tools does the agent need access to?
+
+      **Success criteria and constraints:**
+      - How do you know the process succeeded?
+      - What should definitely NOT happen? (constraints, boundaries)
+      - Are there time limits or SLAs?
+
+      **Edge cases and failures:**
+      - What happens when something goes wrong?
+      - Are there cases where the process should stop and escalate to a human?
+
+      **Existing context:**
+      - Is there a similar process already running? What's different?
+      - Are there existing agents or configurations to build on?
+
+      Group questions into logical batches. Be specific — vague questions get vague answers.
+      Provide options (A/B/C) where possible to reduce user effort.
+
+terminal_state:
+  description: >
+    Self-contained Brief document exists as an output artifact. It covers context,
+    requirements, inventory, solution overview, flow and task descriptions, entity map
+    with dependency graph, creation order, test cases, and design decisions.
+    Human review gate follows this job before drafting begins.
+  invoked_by:
+    - flow-creation

@@ -1,0 +1,37 @@
+name: workers-configurator
+description: "Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities)"
+session:
+  mcp:
+    - orchestra-api
+  skills:
+    - skills/system-model/SKILL.md
+  capabilities:
+    - create-plugin
+    - create-role
+    - create-flow
+    - create-task
+    - create-mcp
+    - test-agent
+    - design-agent
+    - find-external-skills
+    - adapt-external-skill
+    - review-plugin
+    - capture-and-design
+    - draft-entities
+    - validate-and-review
+    - test-and-iterate
+  hooks:
+    SessionStart:
+      - name: "Introduce configurator capabilities"
+        command: |
+          echo "You have the ability to design and configure autonomous agent capabilities in Orchestra — the meta-processes that define how agents work: plugins, roles, flows, tasks, and MCP entities."
+          echo ""
+          echo "Start by invoking /system-model — it maps the entire system: entity types, how they connect, and how the runner assembles them into working agent sessions."
+    PreToolUse:
+      - name: "Block direct skill installation"
+        command: "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'skills\\s+add|npx\\s+(-y\\s+)?skills\\s+add'; then echo 'BLOCKED: Do not install skills directly. Use npx skills find to search, then adapt content into workspace repo format.' >&2; exit 2; fi"
+        blocking: true
+        message: "Do not run npx skills add — adapt skill content manually instead"
+flows:
+  - design-agent
+  - flow-creation

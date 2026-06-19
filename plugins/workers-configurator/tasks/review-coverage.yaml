@@ -1,0 +1,57 @@
+name: review-coverage
+description: "Check for gaps — missing triggers, missing phase skill/tool refs, undeclared outputs"
+trigger: "User asks to find missing triggers, check for gaps in phase references, or verify all outputs are declared"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    tools: [Read, Glob]
+    goal: "Collect full inventory of all plugin entities"
+    actions:
+      - text: "Inspect plugins/*/{tasks,flows} and the plugin's skills/ (Glob/Read) to get the full inventory of the plugin's capabilities, flows, tasks, and skills"
+        why: "Coverage analysis requires knowing all entities to find what's missing between them."
+      - "Read each entity's definition to have full context for gap analysis"
+    gate: "All capabilities, tasks, flows, and skills loaded with their full definitions"
+    next: analyze
+
+  analyze:
+    goal: "Check each entity type for coverage gaps"
+    actions:
+      - type: verify
+        text: "Check every capability (task) has a trigger field — tasks without triggers won't be discoverable"
+      - "Check phases that use MCP tools or skills declare them in the phase's tools/skills field — flag implicit tool usage"
+      - "Check flows have at least one automatic trigger (schedule, linear, webhook) — workflow_dispatch alone is insufficient"
+      - "Check tasks declare outputs that match what their phases actually produce — flag undeclared outputs"
+      - "Check skills have proper frontmatter with description — flag skills missing metadata"
+    gate: "All entity types checked for coverage gaps, every gap documented"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: missing trigger on key capability, flow with no automatic trigger"
+      - "Important: undeclared output, implicit tool use, missing skill frontmatter"
+      - "Suggestion: missing optional metadata, minor coverage improvement"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Coverage review: {critical} critical, {important} important, {suggestion} suggestions, {gaps} coverage gaps"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "Coverage gaps identified across triggers, phase refs, outputs, and metadata"
+  invoked_by:
+    - review-plugin
+    - create-flow
+    - create-task
+    - design-agent
+    - find-external-skills

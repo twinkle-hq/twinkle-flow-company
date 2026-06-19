@@ -1,0 +1,66 @@
+name: review-worker-task
+description: "Review worker execution results for tasks with review_required label — accept, return with feedback, or escalate"
+complexity: medium
+
+outputs:
+  - review_decision
+  - issue_status
+
+hard_gates:
+  - before: evaluate
+    rule: "After 2 returns of the same task, do NOT return again. Move to Blocked and escalate via defer-and-delegate — the worker cannot resolve this."
+
+anti_rationalization:
+  title: "Review quality shortcuts"
+  entries:
+    - thought: "The worker says it's done, I'll trust the summary"
+      reality: "Check that the summary actually covers ALL requirements from the task description. Workers may miss requirements silently."
+    - thought: "The concerns are minor, I'll accept anyway"
+      reality: "Evaluate each concern individually. A 'minor' concern in error handling can be a production incident."
+
+phases:
+  read-results:
+    goal: "Understand what was requested and what was delivered"
+    tools: [get_issue, list_comments, journal_search]
+    actions:
+      - "Read task description (get_issue) — original requirements"
+      - "Read worker comments (list_comments) — execution history, summary, concerns"
+      - type: verify
+        check: "Count how many times this task has been returned (from comment history). If 2+ returns → do NOT evaluate, set task to Blocked and escalate via defer-and-delegate immediately."
+        on_fail: "2+ returns → skip evaluation, go directly to escalation via defer-and-delegate"
+      - "Determine worker status: DONE or DONE_WITH_CONCERNS"
+      - "journal_search: past reviews of this worker's tasks — quality patterns, recurring issues"
+    gate: "Clear picture of requirements vs delivery, return limit not exceeded"
+    next: evaluate
+
+  evaluate:
+    goal: "Assess execution quality"
+    actions:
+      - "Does worker report cover all requirements from task description?"
+      - "If DONE_WITH_CONCERNS — evaluate each concern: serious or not?"
+      - type: decide
+        high_confidence: "Confidence >= 75 and no serious concerns"
+        low_confidence: "Confidence < 75 OR serious concerns"
+    gate: "Decision made: accept or return"
+    next: act-on-review
+
+  act-on-review:
+    goal: "Accept the task, return with feedback, or escalate"
+    tools: [save_issue, save_comment]
+    actions:
+      - type: verify
+        check: "If returning — how many times has this task been returned? (check comment history)"
+        on_fail: "If 2+ returns → set task to Blocked, escalate via defer-and-delegate"
+      - type: decide
+        high_confidence: "Confidence was high → set task status to Done (save_issue), leave confirmation comment explaining what was reviewed and why accepted"
+        low_confidence: "Confidence was low → leave comment with specific feedback on unmet requirements and serious concerns, set task status to Ready for worker to pick up again"
+      - type: write_result
+        status: done
+        summary: "Task reviewed — accepted, returned with feedback, or escalated"
+    gate: "Task status updated and result written"
+    next: null
+
+terminal_state:
+  description: "Task is either Done (accepted) or Ready (returned with feedback) or Blocked (escalated after max returns)."
+  invoked_by:
+    - on-task-review

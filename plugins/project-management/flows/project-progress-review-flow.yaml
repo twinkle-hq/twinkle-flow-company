@@ -1,0 +1,19 @@
+name: project-progress-review-flow
+version: 1
+description: "Periodic deep review of In Progress projects — check task sufficiency for KPIs"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch: true
+
+jobs:
+  review:
+    type: agent
+    task: project-progress-review
+    worker: $worker_name
+    timeout: 30m

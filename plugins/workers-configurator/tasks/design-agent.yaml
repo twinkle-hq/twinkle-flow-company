@@ -1,0 +1,182 @@
+name: design-agent
+description: >
+  Holistic agent design: analyze requirements, inventory existing entities,
+  design capabilities, create all needed entities, compose a role, and test.
+  This is the "think before you build" task.
+trigger: "User asks to design a new agent end-to-end, create a full worker configuration from requirements, or plan what capabilities an agent needs before building"
+params:
+  - name: requirements
+    type: string
+    required: true
+    description: "Requirements for the new agent"
+complexity: complex
+outputs:
+  - agent_design
+  - entities_created
+  - test_result
+
+hard_gates:
+  - before: create-entities
+    rule: >
+      Before creating any YAML: must have a written design document listing
+      all needed entities (MCP, plugins, tasks, flows, role) with rationale
+      for each. No "just start building."
+  - before: compose-role
+    rule: >
+      All plugins referenced by the role must exist and pass validation.
+      Do not create the role until all plugins are ready.
+
+anti_rationalization:
+  title: "Rushing to build without design"
+  entries:
+    - thought: "I know what plugins this needs, I'll just start creating"
+      reality: "Design first, build second. Skipping design leads to missing capabilities discovered during testing."
+    - thought: "This is similar to an existing agent, I'll just copy and modify"
+      reality: "Check what exists first (Inspect plugins/*/{tasks,flows}, roles/, mcp/), but design from requirements. Copying propagates mistakes."
+    - thought: "I'll test after everything is built"
+      reality: "Test incrementally. Validate each entity as you create it. Don't accumulate untested artifacts."
+    - thought: "The requirements are clear, I don't need to write a design document"
+      reality: "The design document is your contract. It prevents scope creep and ensures nothing is forgotten."
+    - thought: "One test is enough to verify the agent works"
+      reality: "Evaluate test logs, not just status. A passing test with skipped steps is a false positive."
+
+phases:
+  analyze-requirements:
+    skills: [system-model]
+    goal: "Understand what agent is needed and why"
+    actions:
+      - text: "Read the requirements carefully. What problem does this agent solve?"
+        why: "Agents that solve the wrong problem are worse than no agent at all."
+      - "What triggers the agent's work? (schedule, events, manual dispatch)"
+      - "What tools does the agent need? (Linear, git, memory, custom APIs)"
+      - "What knowledge must the agent have? (domain skills, process knowledge)"
+      - "What does success look like? (concrete outcomes, not vague goals)"
+    gate: "Requirements understood with concrete success criteria"
+    next: inventory-existing
+
+  inventory-existing:
+    tools: [Read, Glob]
+    goal: "Check what already exists that can be reused"
+    actions:
+      - "Inspect plugins/*/{tasks,flows}, roles/, mcp/ for the full local inventory"
+      - text: >
+          For each requirement, check:
+          - Existing MCP entity that provides needed tools?
+          - Existing plugin that provides needed capability?
+          - Existing task that encodes a needed process?
+          - Existing flow that orchestrates similar work?
+        why: "Reuse is better than duplication. But only reuse entities that truly fit — don't force a square peg."
+      - "Note what can be reused as-is, what needs adaptation, what must be created new"
+    gate: "Complete inventory with reuse/create decisions for each capability"
+    next: search-marketplace
+
+  search-marketplace:
+    type: task
+    task: find-external-skills
+    next: design-capabilities
+
+  design-capabilities:
+    goal: "Write the agent design document"
+    actions:
+      - text: >
+          Write a design document covering:
+          1. Agent purpose and identity (becomes role identity prompt)
+          2. MCP entities needed (existing + new)
+          3. Plugins needed (existing + new), with justification
+          4. Tasks needed (existing + new), with complexity estimates
+          5. Flows needed (with trigger types and job graphs)
+          6. Role composition (final plugin list)
+        why: "This document is the blueprint. Every entity you create should trace back to it."
+      - "Verify the design covers all requirements and success criteria"
+      - "Verify no unnecessary entities — each one must justify its existence"
+    gate: "Design document complete, covers all requirements, no unnecessary entities"
+    next: create-entities
+
+  create-entities:
+    max_iterations: 2
+    tools: [Bash]
+    goal: "Create all needed entities in dependency order"
+    actions:
+      - text: >
+          Create in order (respect dependencies):
+          1. MCP entities (if any new ones needed)
+          2. Skill files (knowledge for plugins)
+          3. Tasks (process definitions for flows)
+          4. Plugins (capability units referencing MCP + skills + tasks)
+          5. Flows (DAGs referencing tasks, owned by plugins)
+        why: "Order matters. Creating in wrong order causes validation failures and missing references."
+      - type: verify
+        check: "flows lint — validate each entity immediately after creation"
+        on_fail: "Fix validation errors before creating the next entity"
+      - "Run flows reliability on all medium+ complexity tasks"
+    gate: "All entities created, validated, and committed"
+    next: compose-role
+
+  compose-role:
+    tools: [Bash]
+    goal: "Create the role that assembles all capabilities"
+    actions:
+      - "Compose the plugin list from the design document"
+      - text: >
+          Write the identity prompt. This defines WHO the agent is:
+          - Purpose and responsibilities
+          - Available tool types and their use
+          - Key constraints and boundaries
+          - Approach to work (how, not just what)
+        why: "Identity is injected into every session. It's the most-read text in the system."
+      - type: verify
+        check: "flows lint — all plugins exist, no errors"
+        on_fail: "Fix missing plugin references"
+      - "git commit the role"
+    gate: "Role created, validated, committed"
+    next: test
+
+  test:
+    type: task
+    task: test-agent
+    next: review
+
+  review:
+    type: parallel
+    tasks: [review-validation, review-coherence, review-design, review-coverage]
+    next: quality-check
+
+  quality-check:
+    type: decision
+    condition: "Are there Critical findings from the review AND fewer than 2 fix iterations?"
+    if_true: create-entities
+    if_false: evaluate
+    if_true_label: "Fix & re-create"
+    if_false_label: "Evaluate"
+
+  evaluate:
+    goal: "Assess the agent and document results"
+    actions:
+      - text: >
+          Evaluate against success criteria from requirements:
+          - Did the agent complete the task?
+          - Did it use the right tools?
+          - Did it follow the expected process?
+          - Were any steps skipped or rationalized?
+        why: "Evaluation against original requirements catches configuration gaps that tests alone miss."
+      - "Stop and clean up test worker"
+      - "If issues found: fix configuration and re-test (return to create-entities or compose-role)"
+      - type: write_result
+        status: done
+        summary: "Agent {role_name} designed with {N} plugins, {M} flows. Test result: {pass/fail}. {details}"
+    gate: "Evaluation complete, test worker cleaned up, results documented"
+    next: null
+
+terminal_state:
+  description: >
+    Agent fully designed, all entities created and validated, role composed,
+    tested with a real task, and evaluated against requirements. All artifacts
+    committed to workspace repo.
+  invokes:
+    - create-mcp
+    - create-plugin
+    - create-task
+    - create-flow
+    - create-role
+    - test-agent
+    - find-external-skills

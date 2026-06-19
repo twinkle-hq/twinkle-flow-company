@@ -1,0 +1,44 @@
+name: handle-escalation
+description: "Process human response to an escalation — verify answer sufficiency, resolve or follow up with clarifying questions"
+complexity: simple
+
+outputs:
+  - resolution_status
+
+phases:
+  read-response:
+    goal: "Understand the human's answer"
+    tools: [get_issue, list_comments, journal_search]
+    actions:
+      - "Read escalation description (get_issue) — what was asked, what options were presented"
+      - "Read comments (list_comments) — human's response"
+      - "journal_search: past escalations on this topic or project — what decisions the human made in similar situations"
+    gate: "Understand both the question and the answer"
+    next: evaluate
+
+  evaluate:
+    goal: "Determine if response is sufficient to proceed"
+    actions:
+      - type: decide
+        high_confidence: "Response gives concrete solution or direction"
+        low_confidence: "Response is ambiguous or raises new questions"
+    gate: "Decision: resolve or follow up"
+    next: respond
+
+  respond:
+    goal: "Resolve the escalation or ask clarifying questions"
+    tools: [save_comment, journal_write]
+    actions:
+      - type: decide
+        high_confidence: "Response was sufficient → leave confirmation comment summarizing understood decision, journal_write the decision (type: decision, tags: escalation + project/topic), write result status done"
+        low_confidence: "Response was ambiguous → reply in thread with specific clarifying questions, write result status needs_human"
+      - type: write_result
+        status: "done (if resolved) or needs_human (if clarification needed)"
+        summary: "Escalation resolved with decision journaled, or clarification requested"
+    gate: "result.md written with correct status"
+    next: null
+
+terminal_state:
+  description: "Escalation is either resolved (done → continuation unblocks, decision journaled for future reference) or awaiting clarification (needs_human → Blocked, human answers and sets Ready again)."
+  invoked_by:
+    - on-escalation-ready

@@ -1,0 +1,9 @@
+# roles/executive.yaml
+name: executive
+description: "Executive PM agent — manages projects, coordinates workers, handles escalations"
+plugins:
+  - project-management
+  - workers-orchestra
+  - core-memory
+  - core-summary
+  - workers-collaboration

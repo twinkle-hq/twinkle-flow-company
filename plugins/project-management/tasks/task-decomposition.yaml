@@ -1,0 +1,110 @@
+name: task-decomposition
+description: "Decompose an approved project into worker tasks — analyze scope, assign workers, create issues with dependencies"
+params:
+  - name: project_id
+    type: string
+    required: false
+    description: "Linear project ID to decompose (provided by trigger or dispatch)"
+complexity: critical
+
+outputs:
+  - created_tasks
+  - project_status
+
+hard_gates:
+  - before: readiness-check
+    rule: "Do NOT create issues in Linear or move project to In Progress until ALL tasks have an assigned worker from Team.md. No exceptions."
+  - before: decomposition
+    rule: "The task framework from the approved project description is the foundation. Do not change its essence — detailize and strengthen, but preserve the human-approved direction."
+
+anti_rationalization:
+  title: "Decomposition shortcuts"
+  entries:
+    - thought: "The framework is clear enough, I can create tasks without checking Team.md"
+      reality: "Every task must have an assigned worker BEFORE creation. Missing assignments lead to Blocked projects and wasted sessions."
+    - thought: "This task is complex but I'll keep it as one issue to avoid overhead"
+      reality: "Complexity >= 7 MUST be split into subtasks. A blocked complex task costs more than the overhead of splitting."
+    - thought: "I'll skip create-worker-task review loop for simple tasks"
+      reality: "create-worker-task is MANDATORY for every task regardless of complexity. Even simple tasks need clear descriptions."
+    - thought: "The project has too many tasks (>10), but I'll create them all in one session"
+      reality: "Scope > 10 tasks → use defer-and-delegate. Create first batch + continuation task for the rest."
+
+phases:
+  context-gathering:
+    goal: "Understand project scope and available resources"
+    tools: [get_project, list_comments, journal_search]
+    actions:
+      - "Read project from Linear (get_project) — requirements, KPIs, task framework"
+      - "journal_search: past decompositions of similar projects, complexity estimation errors, worker assignment issues"
+      - type: verify
+        check: "Scope assessment: does framework contain > 10 items?"
+        on_fail: "Use defer-and-delegate for batch processing — first portion + continuation task for the rest"
+      - "Read comments on the decomposition task — remarks from human during approval"
+      - "Read Team.md — team composition, capabilities, repos"
+      - type: verify
+        check: "Cross-check Team.md with Linear labels (list_issue_labels) — all workers present"
+        on_fail: "Escalate Team.md mismatch via defer-and-delegate before proceeding"
+    gate: "Full understanding of project scope and team composition"
+    next: pre-check
+
+  pre-check:
+    goal: "Handle Blocked project continuation (post-hiring)"
+    actions:
+      - type: decide
+        high_confidence: "Project is Approved — proceed to decomposition"
+        low_confidence: "Project is Blocked (post-hiring) — verify hiring request is Done, then move project to Approved"
+    gate: "Project is in Approved status"
+    next: decomposition
+
+  decomposition:
+    goal: "Break project into concrete tasks"
+    actions:
+      - "Take framework from project description as foundation (human-approved)"
+      - "Detailize each framework item into concrete tasks"
+      - "For each task determine: complexity score (1-10), target worker (from Team.md), dependencies (blocked_by)"
+      - "Complexity >= 7 → split into flat subtasks (Linear does not support nesting)"
+      - "For each task — prepare structured description following create-worker-task template"
+    gate: "Complete task list with assignments and dependencies, no cyclic dependencies"
+    next: readiness-check
+
+  readiness-check:
+    goal: "Verify all tasks can be executed"
+    actions:
+      - type: verify
+        check: "Do tasks cover ALL requirements from project description?"
+        on_fail: "Add missing tasks to cover uncovered requirements"
+      - type: verify
+        check: "Does EVERY task have an assigned worker from Team.md?"
+        on_fail: "STOP — use defer-and-delegate: create hiring request (escalation) + continuation task, set project to Blocked"
+      - "Check for cyclic dependencies in blocked_by chains"
+      - type: decide
+        high_confidence: "Confidence >= 50 in decomposition — proceed to creation"
+        low_confidence: "Confidence < 50 — escalate to human via defer-and-delegate"
+    gate: "All tasks assigned, no cycles, confidence >= 50"
+    next: review-decomposition
+
+  review-decomposition:
+    type: task
+    task: review-draft
+    next: create-in-linear
+
+  create-in-linear:
+    goal: "Create all tasks and launch project"
+    tools: [save_issue, get_issue, save_project, save_status_update]
+    actions:
+      - text: "For each task — use create-worker-task capability (with review loop)"
+        why: "Mandatory quality gate for every task creation"
+      - "Set blocked_by dependencies between created tasks"
+      - "All tasks set to Ready (runner handles dependency blocking)"
+      - "Move project to In Progress (save_project)"
+      - "save_status_update on project: 'Decomposition complete, N tasks created'"
+      - type: write_result
+        status: done
+        summary: "Project decomposed into N tasks, all created and verified"
+    gate: "All tasks created and verified in Linear, project is In Progress"
+    next: null
+
+terminal_state:
+  description: "All tasks exist in Linear in Ready status with correct labels, dependencies, and descriptions. Project status is In Progress with a status update recording the decomposition."
+  invoked_by:
+    - on-project-approved

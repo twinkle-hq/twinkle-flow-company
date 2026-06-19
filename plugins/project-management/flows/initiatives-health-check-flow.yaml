@@ -1,0 +1,19 @@
+name: initiatives-health-check-flow
+version: 1
+description: "Periodic scan of active initiatives — status updates and escalations for completed/empty initiatives"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch: true
+
+jobs:
+  scan:
+    type: agent
+    task: initiatives-health-check
+    worker: $worker_name
+    timeout: 30m

@@ -1,0 +1,14 @@
+name: team-mcp
+description: Team discovery and manual flow dispatch.
+connection_type: internal
+url: http://flows:8081
+registration_endpoint: http://flows:8081/team-mcp/register
+registration_payload_fields:
+  - role
+  - task_id
+  - visible_workers
+  - team_id
+registration_response:
+  token_field: token
+auth:
+  type: internal_secret

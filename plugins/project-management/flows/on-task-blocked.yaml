@@ -1,0 +1,21 @@
+name: on-task-blocked
+version: 1
+description: "Unblock worker task when it moves to Blocked status"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  linear:
+    event: issue.update
+    filters:
+      status: [Blocked]
+  workflow_dispatch: true
+
+jobs:
+  unblock:
+    type: agent
+    task: unblock-worker
+    worker: $worker_name
+    timeout: 30m

@@ -1,0 +1,22 @@
+name: task-decomposition
+version: 1
+description: "Decompose an approved project into worker tasks"
+
+on:
+  linear:
+    event: project.update
+    filters:
+      status: "Approved"
+  workflow_dispatch: true
+
+jobs:
+  decompose:
+    type: agent
+    task: task-decomposition
+    worker: $executive
+    timeout: 30m
+
+params:
+  executive:
+    type: worker
+    description: "Executive agent to run the decomposition"

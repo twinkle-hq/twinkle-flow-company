@@ -1,0 +1,144 @@
+name: validate-and-review
+description: >
+  Perform semantic validation and multi-lens review of drafted YAML entities.
+  Runs reliability checks, previews compiled SKILL.md output, dispatches parallel
+  review sub-tasks across 4 lenses (coherence, coverage, design, duplication),
+  aggregates findings, and fixes critical issues.
+trigger: >
+  YAML entities have been drafted and schema-validated, and need semantic review
+  for quality, coherence, coverage, and design soundness
+complexity: complex
+outputs:
+  - review_report
+  - critical_count
+  - total_findings
+
+hard_gates:
+  - before: aggregate-findings
+    rule: >
+      All 4 review sub-tasks must complete before aggregation. Do not start
+      consolidation if any review is still running or failed without retry.
+  - before: aggregate-findings
+    rule: >
+      Reliability check and preview inspection must be complete before aggregation.
+      Automated checks provide baseline data that review sub-tasks build upon.
+
+anti_rationalization:
+  title: "Shortcuts that undermine review quality"
+  entries:
+    - thought: "Schema validation passed in Job 2, so semantic review will probably be fine too"
+      reality: "Schema validation checks structure. Coherence, coverage, design, and duplication are orthogonal concerns. Valid YAML can still be poorly designed, incoherent, or duplicative."
+    - thought: "The Brief was approved by a human, so the design must be correct"
+      reality: "Brief approval validates the plan. Implementation can deviate from the plan, introduce inconsistencies, or miss nuances. Review catches implementation-level issues."
+    - thought: "The first few review lenses found nothing, so I can skip the rest"
+      reality: "Each lens catches different problems. Low findings in coherence says nothing about duplication. Run all 4."
+    - thought: "The preview looks readable, so the SKILL.md compilation is fine"
+      reality: "Readable doesn't mean complete. Check that every phase, gate, and anti-rationalization entry survived compilation. Missing elements cause agent failures."
+    - thought: "Fix cycle is overkill for minor findings"
+      reality: "Critical findings block functionality. Important findings degrade behavior. Only suggestions are optional. Fix what matters before passing to testing."
+
+phases:
+  reliability-check:
+    tools: [Bash]
+    goal: "Run automated reliability checks on all medium+ complexity tasks"
+    actions:
+      - text: "Identify all tasks with complexity >= medium"
+        why: "Only medium+ tasks require anti-rationalization and benefit from reliability scoring."
+      - text: "Run flows reliability <task> on each qualifying task"
+        why: "flows reliability scores anti-rationalization quality, hard gates, gate specificity, and verify actions."
+      - "Record scores and recommendations for each task"
+      - "If any task scores below threshold: note specific improvements needed"
+    gate: "All medium+ tasks checked, scores and recommendations recorded"
+    next: preview-inspect
+
+  preview-inspect:
+    tools: [Bash]
+    goal: "Preview how each task compiles into SKILL.md and verify quality"
+    actions:
+      - text: "Run flows preview-skill <task> on each task — this shows what the agent will actually see"
+        why: "Agents work with compiled SKILL.md, not raw YAML. If the preview is unclear or incomplete, the agent will fail."
+      - "Check that every phase appears in the preview with its goal, actions, and gate"
+      - "Check that anti-rationalization entries are present and specific"
+      - "Check that hard gates appear as enforceable rules, not suggestions"
+      - "Verify the trigger description is specific and pushy (for capability tasks)"
+      - "Note any issues: missing phases, vague gates, lost anti-rationalization entries"
+    gate: "All tasks previewed, compilation quality verified, issues noted"
+    next: multi-lens-review
+
+  multi-lens-review:
+    type: parallel
+    tasks:
+      - review-coherence
+      - review-coverage
+      - review-design
+      - review-duplication
+    max_iterations: 3
+    on_max: escalate
+    next: aggregate-findings
+
+  aggregate-findings:
+    max_iterations: 3
+    goal: "Merge, deduplicate, categorize, and produce the final review report"
+    actions:
+      - type: verify
+        check: "Results received from all 4 review sub-tasks and from reliability/preview phases — none missing"
+        on_fail: "Identify which review did not complete and re-run before consolidating"
+      - "Collect findings from: reliability checks, preview inspection, and all 4 review lenses"
+      - "Deduplicate — the same issue may appear in multiple lenses"
+      - text: "Categorize findings into sections: Reliability, Compilation Quality, Coherence, Coverage, Design, Duplication"
+        why: "Organized findings are actionable. A flat list is overwhelming."
+      - text: "For Critical findings: these block functionality. Must be fixed before proceeding."
+        why: "Critical issues mean the configuration will fail at runtime."
+      - text: "For Important findings: evaluate each — is it a real problem or false positive? Fix the real ones."
+        why: "Not all Important findings require action. Use judgment but err on the side of fixing."
+      - text: "For Suggestions: evaluate effort vs value. Fix high-value, low-effort ones. Document the rest."
+        why: "Suggestions are improvement opportunities, not requirements."
+      - "Count totals: critical, important, suggestion, and overall"
+      - "Write an executive summary: overall quality assessment, top 3 most impactful issues, recommended fix order"
+    gate: "All findings merged, deduplicated, categorized with actionable recommendations"
+    next: fix-cycle
+
+  fix-cycle:
+    type: decision
+    condition: "Are there Critical or Important findings remaining that require fixes?"
+    if_true: apply-fixes
+    if_false: finalize
+    if_true_label: "Fix issues"
+    if_false_label: "Finalize"
+
+  apply-fixes:
+    max_iterations: 2
+    tools: [Bash]
+    goal: "Fix critical and important findings"
+    actions:
+      - "Address Critical findings first, then Important"
+      - "For each fix: modify the YAML, re-run flows lint, verify the fix resolved the finding"
+      - "For reliability improvements: add missing anti-rationalization, strengthen gates, add verify actions"
+      - "For preview issues: adjust YAML until flows preview-skill produces clear, complete output"
+      - "git commit fixes with descriptive message"
+    gate: "All Critical findings fixed, Important findings addressed or justified as acceptable"
+    next: reliability-check
+
+  finalize:
+    goal: "Produce final review report"
+    actions:
+      - "Compile the final review report with all findings, fixes applied, and remaining suggestions"
+      - "git commit any final changes"
+      - type: write_result
+        status: done
+        summary: "Review complete: {critical} critical (fixed), {important} important, {suggestion} suggestions across {N} entities"
+    gate: "Final report written, all changes committed"
+    next: null
+
+terminal_state:
+  description: >
+    All entities reviewed across 4 semantic lenses plus automated reliability
+    and compilation checks. Critical findings fixed, important findings addressed.
+    Review report produced with findings, severity, and recommendations.
+  invokes:
+    - review-coherence
+    - review-coverage
+    - review-design
+    - review-duplication
+  invoked_by:
+    - flow-creation

@@ -1,0 +1,57 @@
+name: initiatives-health-check
+description: "Periodic scan of active initiatives — write status updates with project progress summaries, escalate completed or empty initiatives"
+complexity: medium
+
+outputs:
+  - status_updates_written
+  - escalations_created
+
+hard_gates:
+  - before: evaluate
+    rule: "Executive cannot close or activate initiatives. If all projects are Completed, escalate to human for initiative closure."
+
+anti_rationalization:
+  title: "Initiative assessment traps"
+  entries:
+    - thought: "The initiative has projects in progress, everything is fine"
+      reality: "Check if any projects are Blocked or stalled. Status update should reflect actual health, not just existence of projects."
+
+phases:
+  scan-initiatives:
+    goal: "Get state of all active initiatives and their projects"
+    tools: [list_initiatives, list_projects, journal_search]
+    actions:
+      - "list_initiatives — all initiatives"
+      - "For each Active initiative — list_projects to get project statuses"
+      - "journal_search: strategic decisions and human feedback about initiatives — priorities may have shifted"
+    gate: "Complete picture of all initiatives and their project states"
+    next: evaluate
+
+  evaluate:
+    goal: "Determine actions for each initiative"
+    tools: [save_status_update, save_issue]
+    actions:
+      - text: "For each Active initiative:"
+        type: decide
+        high_confidence: "All projects Completed → escalate via defer-and-delegate (human closes initiative). No projects → escalate (empty initiative). Projects exist and in progress → save_status_update with summary (N In Progress, M Completed, K Blocked)."
+        low_confidence: "Ambiguous state → write status update with observations, flag for human attention"
+    gate: "All initiatives processed"
+    next: report
+
+  report:
+    goal: "Finalize results"
+    tools: [save_status_update]
+    actions:
+      - type: verify
+        check: "All status updates written successfully"
+        on_fail: "Retry failed status updates"
+      - type: write_result
+        status: done
+        summary: "Initiatives health check complete — N status updates, M escalations"
+    gate: "result.md written"
+    next: null
+
+terminal_state:
+  description: "All active initiatives have fresh status updates. Completed or empty initiatives escalated to human for closure."
+  invoked_by:
+    - initiatives-health-check-flow

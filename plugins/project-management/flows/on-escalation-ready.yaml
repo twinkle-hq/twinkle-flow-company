@@ -1,0 +1,22 @@
+name: on-escalation-ready
+version: 1
+description: "Process human response when an escalation task is moved back to Ready"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  linear:
+    event: issue.update
+    filters:
+      status: [Ready]
+      labels: [escalation]
+  workflow_dispatch: true
+
+jobs:
+  handle:
+    type: agent
+    task: handle-escalation
+    worker: $worker_name
+    timeout: 15m

@@ -1,0 +1,21 @@
+name: project-completion-flow
+version: 1
+description: "Check project completion and close — dispatched by health check when all tasks are Done/Skipped"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  linear:
+    event: project.update
+    filters:
+      status: [Completing]
+  workflow_dispatch: true
+
+jobs:
+  check-completion:
+    type: agent
+    task: project-completion
+    worker: $worker_name
+    timeout: 30m

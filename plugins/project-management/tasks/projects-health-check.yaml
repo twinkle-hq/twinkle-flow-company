@@ -1,0 +1,72 @@
+name: projects-health-check
+description: "Periodic scan of project statuses — handle edge cases not covered by event-driven flows: completion detection, cancelled cleanup, Team.md validation"
+complexity: medium
+
+outputs:
+  - actions_taken
+  - team_validation_result
+
+hard_gates:
+  - before: act-on-status
+    rule: "Do NOT create a task if an identical task for the same project already exists and is not Done. Check with list_issues before creating."
+
+anti_rationalization:
+  title: "Health check scope creep"
+  entries:
+    - thought: "I should also check task quality while scanning"
+      reality: "Health check is a LIGHTWEIGHT status scanner. Deep analysis belongs to project-progress-review."
+    - thought: "I'll fix this project issue directly instead of creating a task"
+      reality: "Health checks create tasks, they don't execute complex work. Keep scanning fast."
+
+phases:
+  scan-projects:
+    goal: "Get current state of all projects"
+    tools: [list_projects, journal_search]
+    actions:
+      - "list_projects — all team projects with statuses"
+      - "journal_search: recent observations about projects that may affect prioritization"
+    gate: "Complete project list with current statuses"
+    next: act-on-status
+
+  act-on-status:
+    goal: "Create tasks or update statuses as needed"
+    tools: [list_issues, save_issue, save_project]
+    actions:
+      - text: "For each project, check status and act"
+        type: decide
+        high_confidence: "In Progress with all tasks Done/Skipped → dispatch project-completion flow. Cancelled with open tasks → set all open tasks to Skipped."
+        low_confidence: "Blocked with potentially resolved blocker → check Team.md/labels, move to Approved if resolved."
+      - type: verify
+        check: "Before dispatching project-completion: confirm ALL project tasks are in terminal status (Done, Skipped, Cancelled) via list_issues. Do not dispatch on partial data."
+        on_fail: "Tasks still active — do not dispatch completion, log observation"
+      - type: verify
+        check: "Anti-duplication: before creating any task, verify no identical pending task exists (list_issues)"
+        on_fail: "Skip creation for duplicates"
+    gate: "All projects processed"
+    next: validate-team
+
+  validate-team:
+    goal: "Verify Team.md matches Linear labels"
+    tools: [list_issue_labels]
+    actions:
+      - "Read Team.md — listed workers"
+      - "list_issue_labels — actual labels in Linear"
+      - type: verify
+        check: "Team.md workers match Linear labels"
+        on_fail: "Escalate mismatch via defer-and-delegate"
+    gate: "Team validated or escalation created"
+    next: report
+
+  report:
+    goal: "Finalize results"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Health check complete — N actions taken, team validation status"
+    gate: "result.md written"
+    next: null
+
+terminal_state:
+  description: "All projects scanned, necessary tasks created or dispatched, Team.md validated against Linear."
+  invoked_by:
+    - projects-health-check-flow

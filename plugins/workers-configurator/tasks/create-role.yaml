@@ -1,0 +1,90 @@
+name: create-role
+description: >
+  Create a new role by composing existing plugins into a preset.
+  Verifies all referenced plugins exist before writing the role.
+trigger: "User asks to create a role, define a worker preset, compose plugins into a reusable configuration, or set up a new agent type"
+complexity: medium
+outputs:
+  - role_name
+  - validation_result
+
+anti_rationalization:
+  title: "Skipping plugin verification"
+  entries:
+    - thought: "I know these plugins exist, I don't need to check"
+      reality: "Always verify by inspecting plugins/ (Glob/Read). Plugin names are easy to typo."
+    - thought: "The identity prompt isn't that important, I'll write something generic"
+      reality: "Identity shapes every decision the agent makes. Be specific about purpose, authority, and constraints."
+    - thought: "I can add more plugins later if needed"
+      reality: "Design the complete plugin set now. Missing plugins mean missing capabilities at runtime."
+
+phases:
+  understand:
+    goal: "Understand what kind of agent this role defines"
+    actions:
+      - text: "What is this agent's purpose? What does it do, what does it NOT do?"
+        why: "Roles define agent identity. Unclear purpose leads to unfocused behavior."
+      - "What tools does it need? (maps to plugins with MCP entities)"
+      - "What knowledge does it need? (maps to plugins with skills)"
+      - "What processes should it run? (maps to plugins with flows)"
+    gate: "Can list the agent's purpose, each needed capability, and which plugins provide them"
+    next: list-plugins
+
+  list-plugins:
+    skills: [system-model]
+    tools: [Read, Glob]
+    goal: "Identify which plugins to include"
+    actions:
+      - "Inspect plugins/ (Glob/Read) — get full inventory of available plugins"
+      - "Match required capabilities to existing plugins"
+      - text: "Identify capability gaps — things no existing plugin provides"
+        why: "If a needed capability doesn't exist as a plugin, you must create it first."
+      - type: verify
+        check: "Every required capability maps to an existing plugin"
+        on_fail: "Create missing plugins first using the create-plugin process"
+    gate: "Complete plugin list with all capabilities covered"
+    next: compose
+
+  compose:
+    goal: "Design the role composition and identity"
+    actions:
+      - "Determine final plugin list — order doesn't matter, but completeness does"
+      - text: >
+          Write the identity prompt. Include:
+          - Who the agent is and what it does
+          - What MCP tools it has and their purpose
+          - Key constraints and authority boundaries
+          - How it should approach tasks
+        why: "The identity prompt is injected into every session. It's the agent's self-understanding."
+      - "Consider plugin interactions — do any plugins conflict or overlap?"
+    gate: "Plugin list and identity prompt finalized"
+    next: create-yaml
+
+  create-yaml:
+    goal: "Write the role YAML file"
+    actions:
+      - "Write role YAML in roles/ directory with name, description, plugins, identity"
+      - "Ensure name is lowercase-hyphenated"
+    gate: "Role YAML file written"
+    next: validate-and-commit
+
+  validate-and-commit:
+    tools: [Bash]
+    goal: "Validate and commit the role"
+    actions:
+      - type: verify
+        check: "flows lint — must return no errors"
+        on_fail: "Fix validation errors (usually missing plugin references), re-validate"
+      - "git add and commit"
+      - type: write_result
+        status: done
+        summary: "Role {name} created with plugins: {plugin_list}"
+    gate: "Validation passes, changes committed"
+    next: null
+
+terminal_state:
+  description: >
+    Role YAML exists in roles/ directory, passes validation, and all
+    referenced plugins exist. Changes committed to workspace repo.
+  invoked_by:
+    - design-agent

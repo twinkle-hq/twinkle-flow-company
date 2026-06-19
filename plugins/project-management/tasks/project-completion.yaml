@@ -1,0 +1,67 @@
+name: project-completion
+description: "Verify project completion by checking all tasks are done and KPIs are met, then close the project or escalate"
+complexity: medium
+
+outputs:
+  - project_status
+  - completion_report
+
+hard_gates:
+  - before: kpi-check
+    rule: "Do NOT close a project with confidence below 85. If unsure whether KPIs are met, escalate via defer-and-delegate. Closing is irreversible."
+
+anti_rationalization:
+  title: "Premature closure risks"
+  entries:
+    - thought: "All tasks are Done, so the project must be complete"
+      reality: "Tasks Done != KPIs met. Verify each KPI against actual task results, not just status."
+    - thought: "The KPIs are soft/qualitative, so I'll just mark them as met"
+      reality: "If you cannot objectively verify a KPI, your confidence should be below 85. Escalate for human judgment."
+
+phases:
+  review-results:
+    goal: "Collect all project results"
+    tools: [get_project, list_issues, list_comments, journal_search]
+    actions:
+      - "Read project description — requirements, KPIs"
+      - "Read all project tasks (list_issues) — statuses, results"
+      - "Read comments on key tasks — execution summaries"
+      - "journal_search: past project completions — cases where KPIs seemed met but project actually failed"
+      - type: verify
+        check: "All tasks in the project have a terminal status (Done, Skipped, or Cancelled). No tasks are In Progress, Ready, or Blocked."
+        on_fail: "Project is not ready for completion — write result explaining which tasks are still pending"
+    gate: "Full picture of project results vs requirements, all tasks in terminal status"
+    next: kpi-check
+
+  kpi-check:
+    goal: "Verify each requirement and KPI"
+    actions:
+      - "For each requirement: is it covered by Done tasks? Mark met/not-met."
+      - "For each KPI: is it achieved based on task results? Mark met/not-met."
+      - type: decide
+        high_confidence: "Confidence >= 85 — all KPIs met, proceed to close"
+        low_confidence: "Confidence < 85 — use defer-and-delegate: escalation describing which KPIs are unclear + continuation task"
+    gate: "Confidence >= 85 in project completion"
+    next: close-project
+
+  close-project:
+    goal: "Close the project with completion report"
+    tools: [save_project, save_status_update, journal_write]
+    actions:
+      - "Set project status to Completed (save_project)"
+      - "save_status_update: completion report — what was done, KPIs met/not-met, Skipped tasks if any, overall assessment"
+      - text: "journal_write: project completion outcome — which KPIs met/not-met, any Skipped tasks and why, lessons for future projects"
+        type: verify
+        check: "Journal entry written with type: outcome, tags: project-completion + project name"
+        on_fail: "Write the journal entry before proceeding"
+      - type: write_result
+        status: done
+        summary: "Project completed — all requirements met, KPIs verified, outcome journaled"
+    gate: "Project is in Completed status with final status update"
+    next: null
+
+terminal_state:
+  description: "Project is Completed in Linear with a final status update documenting KPI achievement. Or: escalation created for human review of unclear KPIs."
+  invoked_by:
+    - project-completion-flow
+    - projects-health-check

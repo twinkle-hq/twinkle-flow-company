@@ -1,0 +1,107 @@
+name: test-agent
+description: >
+  Test a configured agent by creating a test worker, assigning a test task,
+  running it, and evaluating the result. Uses orchestra-api MCP tools.
+trigger: "User asks to test an agent configuration, verify a role works correctly, run a sandbox test, or validate that a configured worker performs as expected"
+complexity: medium
+outputs:
+  - test_result
+  - recommendations
+
+hard_gates:
+  - before: evaluate
+    rule: "Task must have reached a terminal state (done, blocked, or failed) before evaluating. Do not evaluate an in-progress task."
+  - before: cleanup
+    rule: "Evaluation must be documented in the result regardless of pass or fail. Do not skip to cleanup without recording findings."
+
+anti_rationalization:
+  title: "Skipping real testing"
+  entries:
+    - thought: "The validation passed so the agent should work"
+      reality: "Validation checks schema, not behavior. An agent can have valid YAML and still fail every task."
+    - thought: "I'll just check the config looks right instead of running a real test"
+      reality: "Config review catches structural issues. Only a real test reveals runtime failures like wrong MCP tools, missing context, or bad phase flow."
+    - thought: "The test task succeeded, so the agent is ready for production"
+      reality: "One successful test is necessary but not sufficient. Check logs for rationalization, skipped steps, and lucky successes."
+    - thought: "Cleanup isn't important, I'll leave the test worker running"
+      reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
+
+phases:
+  prepare:
+    goal: "Determine what to test and how"
+    actions:
+      - text: "Identify the role/plugins being tested and their expected capabilities"
+        why: "Testing without knowing expected behavior means you can't evaluate results."
+      - "Design a test task that exercises the key capabilities"
+      - "The test task should be simple but representative — covers main workflow, not edge cases"
+    gate: "Test plan ready with specific expected outcomes"
+    next: create-test-worker
+
+  create-test-worker:
+    tools: [create_worker]
+    goal: "Create a temporary test worker with the target configuration"
+    actions:
+      - "create_worker with the target role/plugins, a test-prefixed name, and a test label"
+      - type: verify
+        check: "get_worker_status — worker exists in config"
+        on_fail: "Check error message, fix configuration, retry"
+    gate: "Test worker created and visible in config"
+    next: create-test-task
+
+  create-test-task:
+    tools: [create_task]
+    goal: "Create a task for the test worker to execute"
+    actions:
+      - text: "create_task with a clear test description that exercises the agent's main capability"
+        why: "The test task must be specific enough to evaluate but simple enough to succeed in one attempt."
+      - "Set task label to match the test worker's label"
+      - "Set status to Ready"
+    gate: "Test task created in Ready status with correct label"
+    next: start-and-wait
+
+  start-and-wait:
+    tools: [start_worker, get_worker_status]
+    goal: "Start the test worker and wait for task completion"
+    actions:
+      - "start_worker — begin the test worker"
+      - text: "Poll get_worker_status periodically until the worker picks up and completes the task"
+        why: "Workers are asynchronous. Must wait for the full lifecycle to complete."
+      - "Set a reasonable timeout (10-15 minutes for simple tests)"
+    gate: "Task reached terminal state (done or blocked)"
+    next: evaluate
+
+  evaluate:
+    tools: [get_task_result, get_task_logs]
+    goal: "Assess test results and agent behavior"
+    actions:
+      - "get_task_result — read the task outcome and output"
+      - text: >
+          get_task_logs — read execution logs. Look for:
+          - Did the agent follow the expected phases?
+          - Did it skip any steps or rationalize shortcuts?
+          - Were MCP tools used correctly?
+          - Did it produce the expected outputs?
+        why: "A 'done' status doesn't mean the agent worked well. Log analysis reveals behavior quality."
+      - type: decide
+        high_confidence: "Task succeeded AND logs show correct behavior → test passes"
+        low_confidence: "Task failed OR logs show skipped steps → document issues and recommendations"
+    gate: "Evaluation complete with clear pass/fail and evidence"
+    next: cleanup
+
+  cleanup:
+    tools: [stop_worker]
+    goal: "Remove test resources"
+    actions:
+      - "stop_worker — stop the test worker"
+      - type: write_result
+        status: done
+        summary: "Test {result}: {summary_of_findings}. Recommendations: {recommendations}"
+    gate: "Test worker stopped, results documented"
+    next: null
+
+terminal_state:
+  description: >
+    Test completed with documented results and recommendations.
+    Test worker stopped and cleaned up. Test task has terminal status.
+  invoked_by:
+    - design-agent

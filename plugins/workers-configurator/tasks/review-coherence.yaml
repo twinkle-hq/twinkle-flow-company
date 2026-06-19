@@ -1,0 +1,56 @@
+name: review-coherence
+description: "Verify plugin components form a unified capability — no orphan entities, logical connections"
+trigger: "User asks if a plugin's components make sense together, check for orphan entities, or audit plugin coherence"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    tools: [Read, Glob]
+    goal: "Read plugin definition and collect all its components"
+    actions:
+      - "Read the plugin definition to understand its stated purpose and domain"
+      - text: "Inspect plugins/*/{tasks,flows}, mcp/, and the plugin's skills/ (Glob/Read) to get the full inventory of the plugin's MCP refs, skills, capabilities, flows, tasks, and hooks"
+        why: "Need the complete picture to judge whether components form a coherent unit or a random collection."
+    gate: "Plugin purpose understood, all components (MCP, skills, capabilities, flows, hooks) catalogued"
+    next: analyze
+
+  analyze:
+    skills: [system-model]
+    goal: "Check each component serves the plugin's stated purpose"
+    actions:
+      - "Check every MCP entity referenced by the plugin serves the plugin's stated purpose — flag any that seem unrelated"
+      - "Check every skill contributes knowledge relevant to the plugin's domain — flag generic filler skills"
+      - "Check every capability (task) aligns with what the plugin is supposed to do — flag orphan tasks with no logical connection"
+      - "Check flows orchestrate work that belongs to this plugin — flag flows that would fit better elsewhere"
+      - "Check hooks make sense for the plugin's lifecycle — flag hooks that seem unrelated or redundant"
+      - type: verify
+        text: "Confirm capabilities and flows don't duplicate each other — a capability and a flow should not cover the same behavior"
+    gate: "All components checked against plugin purpose, orphans and duplicates identified"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: entity clearly belongs elsewhere or has no connection to plugin purpose"
+      - "Important: weak connection to purpose, redundant hook, capability/flow overlap"
+      - "Suggestion: could be tighter, minor naming or grouping improvement"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Coherence review: {critical} critical, {important} important, {suggestion} suggestions, {orphans} orphan entities"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "Plugin coherence verified, orphan entities and weak connections documented"
+  invoked_by:
+    - review-plugin
+    - design-agent

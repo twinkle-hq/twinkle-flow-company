@@ -1,0 +1,22 @@
+name: on-task-review
+version: 1
+description: "Review worker results when a task with review_required label moves to In Review"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  linear:
+    event: issue.update
+    filters:
+      status: [In Review]
+      labels: [review_required]
+  workflow_dispatch: true
+
+jobs:
+  review:
+    type: agent
+    task: review-worker-task
+    worker: $worker_name
+    timeout: 30m

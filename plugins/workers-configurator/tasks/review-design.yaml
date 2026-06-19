@@ -1,0 +1,53 @@
+name: review-design
+description: "Check architectural decisions — active/passive separation, single responsibility, hook usage"
+trigger: "User asks to check plugin architecture, verify separation of concerns, or audit if a plugin should be split"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    goal: "Read plugin and all its entities for full architectural picture"
+    actions:
+      - "Read the plugin definition and all its entities — MCP refs, skills, capabilities, flows, tasks, hooks"
+      - "Note the plugin's stated purpose, size (number of capabilities, flows), and domain boundaries"
+    gate: "Plugin and all entities loaded, architectural scope understood"
+    next: analyze
+
+  analyze:
+    skills: [system-model]
+    goal: "Apply architectural design criteria systematically"
+    actions:
+      - "Check active/passive separation is correct — session config (mcp, skills, hooks) is passive context; flows are active behavior. Flag mixing."
+      - type: verify
+        text: "Check single responsibility — the plugin should do one thing well. Flag plugins trying to cover unrelated domains."
+      - "Check hooks are appropriate for their lifecycle events — SessionStart for context injection, Stop for validation, PreToolUse for guardrails. Flag misused hook events."
+      - "Check MCP entities are reused from existing definitions, not duplicated with slight variations. Flag unnecessary duplication."
+      - "Check the plugin isn't too large — more than 5 capabilities or 3 flows suggests it should be split. Flag oversized plugins."
+    gate: "All architectural criteria checked, every concern documented"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: wrong active/passive separation, broken responsibility boundary, fundamentally misused patterns"
+      - "Important: oversized plugin, duplicated MCP definitions, misused hook events"
+      - "Suggestion: could be cleaner, minor structural improvement"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Design review: {critical} critical, {important} important, {suggestion} suggestions"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "Architectural design reviewed for separation of concerns, responsibility, and appropriate patterns"
+  invoked_by:
+    - review-plugin
+    - design-agent

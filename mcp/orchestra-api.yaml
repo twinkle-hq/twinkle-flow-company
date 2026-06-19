@@ -1,0 +1,11 @@
+name: orchestra-api
+description: Worker management and task creation for configurator agents.
+connection_type: internal
+url: http://orchestra-mcp:4300
+registration_endpoint: http://orchestra-mcp:4300/register
+registration_payload_fields:
+  - task_id
+registration_response:
+  token_field: token
+auth:
+  type: internal_secret

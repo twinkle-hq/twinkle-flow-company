@@ -1,0 +1,7 @@
+# roles/configurator.yaml
+name: configurator
+description: "Agent configuration designer — creates, validates, and tests agent setups"
+plugins:
+  - core-memory
+  - workers-configurator
+  - core-summary

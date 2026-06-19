@@ -1,0 +1,22 @@
+name: initiative-kickoff
+version: 1
+description: "Create projects when an initiative becomes Active"
+
+on:
+  workflow_dispatch: true
+  linear:
+    event: [initiative.create, initiative.update]
+    filters:
+      status: "Active"
+
+params:
+  executive:
+    type: worker
+    description: "Executive agent to analyze the initiative and create projects"
+
+jobs:
+  kickoff:
+    type: agent
+    task: initiative-kickoff
+    worker: $executive
+    timeout: 30m

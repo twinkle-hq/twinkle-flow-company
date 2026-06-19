@@ -1,0 +1,22 @@
+name: review-gate-flow
+version: 1
+description: "Create a new project and send for human review — dispatch only, initiated by human or another agent"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  linear:
+    event: issue.create
+    filters:
+      status: [Ready]
+      labels: [executive, create-project]
+  workflow_dispatch: true
+
+jobs:
+  create-project:
+    type: agent
+    task: review-gate
+    worker: $worker_name
+    timeout: 30m

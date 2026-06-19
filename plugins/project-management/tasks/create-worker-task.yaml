@@ -1,0 +1,82 @@
+name: create-worker-task
+description: "Universal skill for creating worker tasks in Linear with quality review loop"
+complexity: medium
+trigger: "Any process needs to create a task for a worker — task decomposition, unblock-worker, project-progress-review, or any other situation requiring a new worker issue"
+
+outputs:
+  - issue_id
+  - issue_url
+
+hard_gates:
+  - before: research-context
+    rule: "Search journal for past tasks to this worker before drafting. Past NEEDS_CONTEXT or BLOCKED results indicate description quality issues to avoid."
+  - before: create-and-verify
+    rule: "Subagent reviewer must return Approved before creating issue in Linear. Max 3 review iterations, then escalate."
+
+anti_rationalization:
+  title: "Shortcuts that damage worker effectiveness"
+  entries:
+    - thought: "The task is simple enough, I can skip the review loop"
+      reality: "Even simple tasks can have unclear definitions of done. The review loop catches ambiguity that causes NEEDS_CONTEXT returns."
+    - thought: "I'll reference the project description instead of writing full context"
+      reality: "Workers are ephemeral — they have ZERO project context. The description IS their entire world. Write everything explicitly."
+    - thought: "The worker will figure out the details"
+      reality: "Ambiguity causes blocked tasks, which costs a full session to unblock. Specificity upfront is always cheaper."
+
+phases:
+  research-context:
+    goal: "Gather context about the worker and past task quality"
+    tools: [journal_search, get_issue, list_issues]
+    actions:
+      - type: verify
+        check: "journal_search for past tasks to this worker — what descriptions led to NEEDS_CONTEXT or BLOCKED, what formulations worked well"
+        on_fail: "Run journal_search before proceeding. If no relevant results, note and continue."
+      - "Read Team.md — worker capabilities, repos, model preferences"
+      - type: verify
+        check: "Anti-duplication: list_issues to check no identical pending task exists for this worker and project"
+        on_fail: "Identical task exists — write result early explaining the duplicate"
+    gate: "Worker context and past quality patterns understood, no duplicate found"
+    next: draft-task
+
+  draft-task:
+    goal: "Formulate complete, self-sufficient task description"
+    actions:
+      - text: "Write Task section — complete description of what to do. Full text, not references. Write as if the worker has zero project context."
+        why: "Worker is ephemeral — description = everything they know"
+      - "Write Context section — where the task fits, dependencies, what others have completed"
+      - "Add Before You Begin section — encourage questions before starting work"
+      - "Add When Blocked section — instructions for returning status with diagnostics"
+      - text: "Determine: complexity (1-10), model (>=3 Opus, <3 Sonnet), review_required (>=5), worker label, projectId, blocked_by"
+        type: decide
+        high_confidence: "All parameters determined from task scope and Team.md"
+        low_confidence: "Unclear worker assignment or complexity — consult Team.md or escalate"
+    gate: "Draft is complete with all metadata determined"
+    next: review-loop
+
+  review-loop:
+    type: task
+    task: review-draft
+    next: create-and-verify
+
+  create-and-verify:
+    goal: "Create issue in Linear and verify"
+    tools: [save_issue, get_issue]
+    actions:
+      - "save_issue with full description, labels (worker, model, timeout, review_required if applicable), projectId, blocked_by"
+      - "Set status to Ready"
+      - type: verify
+        check: "get_issue — verify issue exists with correct fields, labels, and blocked_by"
+        on_fail: "Retry save_issue. If second failure — escalate."
+      - type: write_result
+        status: done
+        summary: "Worker task created and verified in Linear"
+    gate: "Issue exists in Linear with correct configuration"
+    next: null
+
+terminal_state:
+  description: "A fully specified, reviewed worker task exists in Linear in Ready status with correct labels, dependencies, and a self-sufficient description."
+  invoked_by:
+    - task-decomposition
+    - unblock-worker
+    - project-progress-review
+    - defer-and-delegate

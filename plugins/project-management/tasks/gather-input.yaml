@@ -1,0 +1,54 @@
+name: gather-input
+description: "Ask human questions via needs_human protocol and collect answers"
+complexity: simple
+
+outputs:
+  - human-answers
+
+phases:
+  ask:
+    goal: "Write questions and end session"
+    actions:
+      - "Formulate your questions based on the current context"
+      - "Write task/result.md in the needs_human format (see below)"
+      - "End your session"
+    gate: "result.md written with needs_human status and questions — session ended"
+    next: process-answers
+
+  process-answers:
+    goal: "Process human answers"
+    actions:
+      - "Human answers are in task/context.json → feedback[] as {author, date, body} objects"
+      - "If answers are sufficient — compile a structured summary and write result.md with status: done"
+      - "If you need follow-up — write result.md with needs_human again for another round"
+    gate: "result.md written"
+    next: null
+
+terminal_state:
+  description: "Human answers collected and summarized in result.md"
+  invoked_by:
+    - "Any flow needing human input mid-execution"
+
+sections:
+  - name: "needs_human Format"
+    content: |
+      ```yaml
+      ---
+      status: needs_human
+      summary: "Brief description of what you're asking about"
+      questions:
+        - "First question"
+        - "Second question"
+      ---
+      ```
+
+      After you end the session:
+      1. Your questions are delivered to the human
+      2. When the human answers, your session resumes automatically
+      3. Answers appear in `task/context.json` → `feedback[]`
+      4. You continue from where you left off
+
+      **Tips:**
+      - Be specific — vague questions get vague answers
+      - Provide options (A/B/C) where possible
+      - Group related questions — fewer rounds is better

@@ -1,0 +1,87 @@
+name: unblock-worker
+description: "Diagnose and resolve blocked worker tasks — fix description, change model, split task, or escalate"
+complexity: complex
+
+outputs:
+  - resolution_type
+  - issue_status
+
+hard_gates:
+  - before: diagnose
+    rule: "After 2 unblock attempts on the same task, do NOT try again. Set task to Skipped and escalate via defer-and-delegate."
+  - before: resolve
+    rule: "journal_search for this worker and task type is CRITICAL before choosing resolution strategy. Past failed unblock strategies must not be repeated."
+
+anti_rationalization:
+  title: "Unblock decision traps"
+  entries:
+    - thought: "I'll just add more context to the description and retry"
+      reality: "First diagnose WHY it blocked. Adding context only helps NEEDS_CONTEXT. Other causes need different strategies."
+    - thought: "The task failed because the worker is weak, I'll just upgrade to Opus"
+      reality: "Model upgrade helps only if the task requires more reasoning. If the description is unclear, Opus will fail too."
+    - thought: "I'll split this into subtasks just to be safe"
+      reality: "Splitting creates overhead. Only split if the task is genuinely too large for one session. Diagnose first."
+
+phases:
+  diagnose:
+    goal: "Understand why the task is blocked"
+    tools: [get_issue, list_comments, journal_search]
+    actions:
+      - type: verify
+        check: "Is this a worker task? Check labels — if the issue has the 'escalation' label, this is NOT a worker task. Write result early: status done, resolution_type skipped (escalation issues are handled by handle-escalation, not unblock-worker)."
+        on_fail: "Write result with status done and resolution_type 'skipped — escalation issue, not a worker task'"
+      - "Read task description (get_issue) — what was requested"
+      - "Read comments (list_comments) — execution history, error details, worker status (BLOCKED / NEEDS_CONTEXT)"
+      - text: "journal_search: this worker or task type blocked before — how was it resolved, what strategies failed"
+        why: "Critical for avoiding repeated failed strategies"
+      - text: "Classify problem type"
+        type: decide
+        high_confidence: "Clear diagnosis: unclear description / weak model / NEEDS_CONTEXT / needs pre-work / task too large"
+        low_confidence: "Problem unclear → likely needs human (escalate)"
+      - type: verify
+        check: "How many unblock attempts for this task? (check comments)"
+        on_fail: "2+ attempts → set task to Skipped, escalate via defer-and-delegate"
+    gate: "Diagnosis established, attempt limit not exceeded"
+    next: resolve
+
+  resolve:
+    goal: "Fix the problem or delegate"
+    tools: [save_issue, save_comment, journal_write]
+    actions:
+      - text: "Confidence scoring: can I resolve this?"
+        type: decide
+        high_confidence: "Confidence >= 75 — fix directly (rewrite description, add context, change model label, leave explanatory comment, set task to Ready)"
+        low_confidence: "Confidence 50-75 — task too large? Split via create-worker-task, old task → Skipped. Needs pre-work? Use defer-and-delegate (helper task + continuation). Confidence < 50 — escalate via defer-and-delegate."
+      - text: "journal_write: unblock diagnosis and resolution strategy — what caused the block, what strategy was chosen, what failed strategies were avoided (from journal_search)"
+        why: "Future unblock-worker sessions for this worker or task type will search for this entry to avoid repeating failed strategies"
+    gate: "Resolution action taken, diagnosis journaled"
+    next: review-resolution
+
+  review-resolution:
+    type: task
+    task: review-draft
+    next: verify-resolution
+
+  verify-resolution:
+    goal: "Confirm changes took effect"
+    tools: [get_issue]
+    actions:
+      - type: verify
+        check: "Task status changed as expected? (get_issue)"
+        on_fail: "Retry the status change"
+      - type: verify
+        check: "Any new tasks created? Verify they exist (get_issue for each)"
+        on_fail: "Re-create missing tasks"
+      - type: verify
+        check: "blocked_by dependencies correct?"
+        on_fail: "Fix dependency chain"
+      - type: write_result
+        status: done
+        summary: "Task unblocked via [resolution_type]"
+    gate: "All changes verified"
+    next: null
+
+terminal_state:
+  description: "Blocked task is either Ready (fixed), Skipped (split into new tasks), or escalated to human. Resolution documented in comments."
+  invoked_by:
+    - on-task-blocked

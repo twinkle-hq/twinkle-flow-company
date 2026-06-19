@@ -1,0 +1,7 @@
+name: workers-collaboration
+description: "Linear task management + team discovery and flow dispatch"
+
+session:
+  mcp:
+    - linear-mcp
+    - team-mcp

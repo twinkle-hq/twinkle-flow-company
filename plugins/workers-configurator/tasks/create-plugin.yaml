@@ -1,0 +1,92 @@
+name: create-plugin
+description: >
+  Create a new plugin entity with all dependencies (MCP entities, skills).
+  Validates the complete plugin after creation.
+trigger: "User asks to create a plugin, add a new capability to a worker, bundle MCP tools with skills, or configure session hooks"
+complexity: medium
+outputs:
+  - plugin_name
+  - validation_result
+
+anti_rationalization:
+  title: "Skipping validation and dependency checks"
+  entries:
+    - thought: "I'll skip validation since the YAML looks correct"
+      reality: "Always validate with flows lint. Syntax errors and missing references are invisible to eyeballing."
+    - thought: "The MCP entity probably exists already"
+      reality: "Always check mcp/ (Glob/Read) before referencing. Missing MCP = broken plugin."
+    - thought: "I'll create the skill file later, the plugin is the important part"
+      reality: "Plugin references skills by path. If the file doesn't exist, skill injection fails silently."
+
+phases:
+  understand:
+    goal: "Understand what capability this plugin should provide"
+    actions:
+      - text: "Read the requirements — what tools, knowledge, and lifecycle hooks does the agent need?"
+        why: "Plugins are capability units. Misunderstanding the need leads to wrong MCP/skill choices."
+      - "Identify which MCP tools the plugin needs (tools = mcp entities)"
+      - "Identify what knowledge the agent needs (knowledge = skills)"
+      - "Identify any lifecycle hooks needed (SessionStart, Stop, PreToolUse, PostToolUse)"
+    gate: "Clear list of needed MCP entities, skills, and hooks"
+    next: check-existing
+
+  check-existing:
+    skills: [system-model]
+    tools: [Read, Glob]
+    goal: "Verify what already exists to avoid duplication"
+    actions:
+      - type: verify
+        check: "Inspect plugins/*/{tasks,flows}, roles/, mcp/ for the full local inventory — check if a similar plugin already exists"
+        on_fail: "If duplicate found, document differences and decide whether to extend existing or create new"
+      - "Inspect mcp/ (Glob/Read) — check which referenced MCP entities exist"
+      - "Note which MCP entities need to be created vs already exist"
+    gate: "Know exactly what exists and what needs to be created"
+    next: create-dependencies
+
+  create-dependencies:
+    tools: [Bash]
+    goal: "Create any missing MCP entities and skill files"
+    actions:
+      - text: "For each missing MCP entity: create YAML in mcp/ directory"
+        why: "MCP entities must exist before the plugin that references them. Order matters."
+      - type: verify
+        check: "flows lint for each newly created MCP entity"
+        on_fail: "Fix validation errors and re-validate"
+      - "Write SKILL.md files in skills/ subdirectory of the plugin"
+    gate: "All MCP entities validated, all skill files written"
+    next: create-plugin
+
+  create-plugin:
+    tools: [Bash]
+    goal: "Write the plugin.yaml file"
+    actions:
+      - text: "Write plugin.yaml with name, description, session config, and flows list"
+        why: "This is the central definition. All references must match real entities."
+      - "Ensure system: true only for system-level plugins (prefix system- or core-)"
+      - "Ensure all flows listed exist in the flows/ subdirectory (or will be created)"
+      - text: "If the plugin provides meaningful capabilities, add a SessionStart hook that briefly orients the agent — what abilities this plugin gives and which skill to invoke first. Keep it to 2-3 sentences, no capability lists."
+        why: "Without an introduction, the agent starts blind — skills exist on disk but the agent has no context about what it can do or where to begin."
+    gate: "plugin.yaml written with all fields"
+    next: validate-and-commit
+
+  validate-and-commit:
+    tools: [Bash]
+    goal: "Validate the complete plugin and commit"
+    actions:
+      - type: verify
+        check: "flows lint — must return no errors"
+        on_fail: "Fix each validation error, re-validate until clean"
+      - "git add all new/modified files"
+      - "git commit with descriptive message"
+      - type: write_result
+        status: done
+        summary: "Plugin {name} created and validated"
+    gate: "Validation passes, changes committed"
+    next: null
+
+terminal_state:
+  description: >
+    Plugin YAML exists and passes validation. All referenced MCP entities
+    and skill files exist. Changes are committed to the workspace repo.
+  invoked_by:
+    - design-agent

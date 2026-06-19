@@ -1,0 +1,145 @@
+name: create-mcp
+description: >
+  Create an MCP entity declaration. Pick a connection_type and fill the
+  per-type schema. Workspace repos can declare remote-* and sidecar-*;
+  the internal type is reserved for the shared repo (Orchestra builtins).
+trigger: "User asks to create an MCP entity, register a new MCP service, or add a tool service connection for plugins"
+complexity: simple
+
+anti_rationalization:
+  title: "Shortcuts when writing MCP YAML"
+  entries:
+    - thought: "I'll pick whatever connection_type looks closest, flows lint will catch mistakes"
+      reality: >
+        connection_type drives the entire runtime path. Wrong type = wrong wiring
+        (e.g., remote-pat for an OAuth service silently sends empty Bearer headers).
+        Decide from how the MCP authenticates and where it runs, not from what the
+        service "feels like".
+    - thought: "I'll use connection_type: internal for a workspace-local service"
+      reality: >
+        internal is reserved for the six Orchestra builtins in the shared repo.
+        The validator rejects it in workspace repos. For a workspace-local container
+        use sidecar-http (native HTTP MCP) or sidecar-stdio (stdio MCP wrapped by
+        Supergateway) instead.
+    - thought: "I'll put the token in env_values and skip token_env_var in the declaration"
+      reality: >
+        token_env_var is the binding between declaration and integration. Without it,
+        headersHelper has nothing to render and auth breaks at first connect.
+    - thought: "tool_filter should work for remote-pat / remote-oauth too"
+      reality: >
+        tool_filter is enforced by mcp-runtime's /proxy. Only sidecar types go through
+        that proxy — remote types talk directly to the upstream server. Declaring
+        tool_filter on a remote type is a validator error.
+    - thought: "I'll skip the secret: true flag on sidecar env_schema fields"
+      reality: >
+        Without secret: true the Settings UI renders the field as a plain text input
+        and the API echoes the value back on read — leak vector. Mark every credential
+        field (API keys, tokens, client secrets) as secret: true.
+
+outputs:
+  - mcp_name
+  - connection_type
+  - validation_result
+
+phases:
+  check-existing:
+    skills: [system-model]
+    tools: [Read, Glob]
+    goal: "Avoid duplicates; understand the MCP's deployment model"
+    actions:
+      - type: verify
+        check: "Inspect mcp/ (Glob/Read) — no existing entity with the same name, same URL, or same image"
+        on_fail: >
+          If a duplicate exists, reuse it. Two MCP entries for the same service
+          cause session conflicts (the runner registers both, the worker picks
+          up two identical tool lists).
+      - text: >
+          Identify what the MCP actually is by asking:
+          - Is it a remote HTTPS service or a local container?
+          - If remote: does it accept a static PAT/API key in a header, or does it
+            use OAuth (handled by Nango)?
+          - If local: does the image expose HTTP natively, or does it speak stdio?
+          - Is it one of the Orchestra builtins (linear-mcp, journal-mcp,
+            team-mcp, orchestra-api, telegram-inbox)?
+    gate: "No duplicate found; clear answer to every question above"
+    next: pick-connection-type
+
+  pick-connection-type:
+    skills: [system-model]
+    goal: "Choose the correct connection_type from the five supported values"
+    actions:
+      - text: |
+          Decision tree:
+            - Orchestra builtin? → connection_type: internal.
+              STOP — these are already seeded in the shared repo, do not redeclare.
+              If you are in a workspace repo, internal is forbidden entirely.
+            - Remote HTTPS, static PAT/API key in a header? → connection_type: remote-pat.
+            - Remote HTTPS, OAuth via Nango broker? → connection_type: remote-oauth.
+            - Local Docker image speaking MCP over HTTP? → connection_type: sidecar-http.
+            - Local Docker image speaking MCP over stdio? → connection_type: sidecar-stdio.
+      - type: verify
+        check: "If the answer is 'internal' AND we are editing a workspace repo, STOP"
+        on_fail: >
+          Reply to the user that internal MCPs live only in the shared repo. If
+          they meant to add a workspace-local service, ask which transport (HTTP
+          or stdio) and return to pick-connection-type.
+    gate: "connection_type chosen with a one-sentence reason captured for the commit message"
+    next: write-yaml
+
+  write-yaml:
+    skills: [system-model]
+    goal: "Write the MCP YAML using the per-type skeleton from system-model"
+    actions:
+      - text: >
+          Open skills/system-model/SKILL.md → MCP Entity section. Copy the
+          skeleton that matches the chosen connection_type verbatim and fill in
+          the concrete values. Do not write fields from memory — field names are
+          strictly validated (e.g., token_env_var, not token_env; header_template,
+          not header_pattern).
+        why: >
+          Going from memory causes field-name drift that flows lint rejects and
+          wastes a round-trip. The skeletons are the source of truth.
+      - "Save the file at mcp/<name>.yaml (flat directory, no subdirectories)"
+      - "Name is kebab-case and matches the service's canonical name (e.g., sentry, atlassian)"
+      - text: >
+          For sidecar types, mark every credential field in env_schema with
+          secret: true. The Settings UI then renders a password input and the
+          API redacts the value on read.
+      - text: >
+          For remote-pat: header_template must contain {{token}}. For remote-oauth:
+          header_template must contain {{access_token}}.
+    gate: "YAML written; every required field for the chosen type is present"
+    next: validate-and-commit
+
+  validate-and-commit:
+    tools: [Bash]
+    goal: "Validate and commit"
+    actions:
+      - type: verify
+        check: "flows lint for this entity — must return zero errors"
+        on_fail: >
+          Common traps:
+            - http:// instead of https:// on a remote-* URL.
+            - tool_filter declared on remote-pat or remote-oauth.
+            - Reserved builtin name used in a workspace repo.
+            - Unknown key in registration_payload_fields (must be one of:
+              task_id, task_identifier, team_id, scope_labels, visible_workers, role).
+            - workspace or worker listed in registration_payload_fields (they are
+              implicit — the runner always sends them).
+            - secret: true missing from a credential env_schema field.
+          Fix the specific error, re-validate.
+      - "git add mcp/<name>.yaml and commit with a descriptive message including the connection_type"
+      - type: write_result
+        status: done
+        summary: "MCP entity {mcp_name} created with connection_type {connection_type}"
+    gate: "Validation passes; changes committed"
+    next: null
+
+terminal_state:
+  description: >
+    MCP entity YAML exists in the mcp/ directory with a correct connection_type,
+    passes flows lint, and is committed to the repo. The agent can now
+    reference this MCP by name in a plugin's session.mcp list.
+  invoked_by:
+    - create-plugin
+    - design-agent

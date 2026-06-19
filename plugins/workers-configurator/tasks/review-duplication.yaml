@@ -1,0 +1,53 @@
+name: review-duplication
+description: "Find duplicated processes, reinvented wheels, and reuse opportunities"
+trigger: "User asks to find duplicate processes, check for reuse opportunities, or identify repeated patterns across tasks"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    tools: [Read, Glob]
+    goal: "Collect all entities and read task phases across the system"
+    actions:
+      - text: "Inspect plugins/*/{tasks,flows}, roles/, mcp/ (Glob/Read) for the full local inventory — not just this plugin"
+        why: "Duplication detection requires knowing what exists across the local repo, not just the target plugin."
+      - "Read each of the plugin's task definitions fully — especially phase actions — to prepare for comparison"
+    gate: "Full system inventory loaded, all plugin task phases read"
+    next: analyze
+
+  analyze:
+    goal: "Find duplication across tasks, shared library, and marketplace"
+    actions:
+      - "Compare phases across the plugin's tasks — flag phases with near-identical actions that should be extracted into shared tasks"
+      - "Check against shared/tasks/ — flag processes that duplicate existing shared tasks"
+      - "Check the skills.sh marketplace (npx skills find) for well-known patterns being reimplemented — flag reinvented wheels"
+      - "Find inline processes in phase actions that are complex enough to be their own tasks — flag opportunities to extract"
+      - type: verify
+        text: "Confirm no exact duplicates of existing system entities — same actions, same tools, same purpose under a different name"
+    gate: "All duplication vectors checked: internal, shared library, marketplace, extraction opportunities"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: exact duplicate of existing entity — same actions under a different name"
+      - "Important: near-duplicate or missed shared task, reimplemented well-known pattern"
+      - "Suggestion: extraction opportunity, minor consolidation possible"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Duplication review: {critical} critical, {important} important, {suggestion} suggestions, {dupes} duplicates, {reuse} reuse opportunities"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "Duplication and reuse opportunities identified across plugin and system"
+  invoked_by:
+    - review-plugin

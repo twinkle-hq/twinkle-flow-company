@@ -1,0 +1,215 @@
+name: create-flow
+description: >
+  Create a flow (DAG of jobs) with proper triggers, task references,
+  and dependency graph. Ensures automatic triggers are present.
+trigger: "User asks to create a flow, automate a multi-step process, set up event-triggered orchestration, or define a DAG of tasks"
+complexity: complex
+outputs:
+  - flow_name
+  - tasks_created
+  - validation_result
+
+hard_gates:
+  - before: write-flow-yaml
+    rule: >
+      Every flow MUST have at least one automatic trigger (schedule, linear,
+      or webhook). workflow_dispatch alone is for debugging only and will
+      fail validation. Do not proceed without an automatic trigger.
+  - before: write-flow-yaml
+    rule: >
+      All tasks referenced by jobs must exist as YAML files before the flow
+      is written. Create tasks first.
+
+anti_rationalization:
+  title: "Trigger and validation shortcuts"
+  entries:
+    - thought: "workflow_dispatch is enough for now, I'll add a real trigger later"
+      reality: "Validation will fail. Add the automatic trigger now. There is no 'later' — each session is ephemeral."
+    - thought: "I need to add workflow_dispatch.inputs to define dispatch parameters"
+      reality: "workflow_dispatch.inputs was removed. Parameters come from task.params. Just set workflow_dispatch: true."
+    - thought: "I need job.with to map trigger context to task params"
+      reality: "job.with was removed. Trigger context is passed as params automatically. Task params define what the user fills at dispatch."
+    - thought: "The task YAML is simple, I don't need to create it separately"
+      reality: "Tasks define agent behavior quality. Every task needs its own phases, gates, and anti-rationalization."
+    - thought: "The DAG is obvious, I can keep the graph in my head"
+      reality: "Visualize the dependency graph. Missing edges cause jobs to run out of order."
+    - thought: "I'll skip flows lint since I validated the individual tasks"
+      reality: "flows lint checks cross-references between flow and tasks. Individual validation is necessary but not sufficient."
+
+phases:
+  understand-process:
+    goal: "Understand the process this flow automates"
+    actions:
+      - text: "What is the end-to-end process? What triggers it? What is the desired outcome?"
+        why: "Flows encode processes. Understanding the process before encoding prevents structural mistakes."
+      - "Who performs each step? (maps to worker params)"
+      - "What are the dependencies between steps? (maps to job needs)"
+      - "What triggers this process in the real world? (maps to on: triggers)"
+    gate: "Can describe the trigger, each step, dependencies between steps, and expected outcome"
+    next: check-existing
+
+  check-existing:
+    skills: [system-model]
+    tools: [Read, Glob]
+    goal: "Verify no duplicate flow exists"
+    actions:
+      - type: verify
+        check: "Inspect plugins/*/flows/ (Glob/Read) — no flow with the same name or overlapping purpose"
+        on_fail: "If similar flow exists, decide whether to extend it or create a new one"
+      - "Inspect plugins/*/tasks/ (Glob/Read) — note which tasks already exist that could be reused"
+    gate: "No duplicates, reusable tasks identified"
+    next: design-graph
+
+  design-graph:
+    goal: "Design the job DAG"
+    actions:
+      - text: >
+          Map each process step to a job. Define:
+          - Job name (lowercase-hyphenated)
+          - Task reference (existing or to-be-created)
+          - Worker parameter
+          - Dependencies (needs: [])
+          - Timeout
+        why: "The DAG structure determines execution order. Mistakes here cause runtime failures."
+      - "Verify the graph is a DAG (no cycles)"
+      - "Verify every terminal job produces the flow's expected output"
+    gate: "Complete DAG with all jobs, dependencies, and task references"
+    next: choose-triggers
+
+  choose-triggers:
+    goal: "Define how this flow gets triggered"
+    actions:
+      - text: >
+          Choose at least one automatic trigger:
+          - schedule: for periodic processes (cron expression)
+          - linear: for event-driven processes (issue/project/initiative events + filters)
+          - webhook: for external system events
+        why: "Flows without automatic triggers are dead code. The trigger is what makes the process proactive."
+      - "Optionally add workflow_dispatch: true to enable manual dispatch from the UI"
+      - type: verify
+        check: "At least one of schedule, linear, or webhook is defined"
+        on_fail: "Add an automatic trigger. workflow_dispatch alone is not sufficient."
+    gate: "At least one automatic trigger defined"
+    next: create-tasks
+
+  create-tasks:
+    tools: [Bash]
+    goal: "Create task YAML files for any new tasks"
+    actions:
+      - text: "For each task that doesn't already exist, create it using the create-task process"
+        why: "Tasks must exist before the flow references them. Validate each one individually."
+      - type: verify
+        check: "flows lint — all must pass for each newly created task"
+        on_fail: "Fix task validation errors before proceeding"
+    gate: "All referenced tasks exist and validate"
+    next: write-flow-yaml
+
+  write-flow-yaml:
+    goal: "Write the flow YAML file"
+    actions:
+      - text: >
+          Write flow YAML with:
+          - name, version (start at 1), description
+          - params (worker references only, type: worker)
+          - on (triggers — must include automatic trigger; workflow_dispatch: true if manual dispatch needed)
+          - jobs (DAG with task refs, workers, needs, timeouts — NO with: field)
+          Do NOT add workflow_dispatch.inputs or job with: fields — parameters come from task.params automatically.
+      - "Place in the owning plugin's flows/ directory"
+      - "Ensure the flow name is listed in the plugin's plugin.yaml flows[]"
+    gate: "Flow YAML written in correct location"
+    next: validate
+
+  validate:
+    max_iterations: 2
+    tools: [Bash]
+    goal: "Validate the complete flow"
+    actions:
+      - type: verify
+        check: "flows lint — must return no errors"
+        on_fail: "Fix validation errors: missing task refs, invalid triggers, graph issues"
+      - type: verify
+        check: "flows lint for the owning plugin — ensure flow is listed in flows[]"
+        on_fail: "Add flow name to plugin.yaml flows[] and re-validate"
+    gate: "Flow and owning plugin both pass validation"
+    next: review
+
+  review:
+    type: parallel
+    tasks: [review-validation, review-coverage]
+    next: quality-check
+
+  quality-check:
+    type: decision
+    condition: "Are there Critical findings from the review AND fewer than 2 fix iterations?"
+    if_true: validate
+    if_false: commit
+    if_true_label: "Fix & re-validate"
+    if_false_label: "Commit"
+
+  commit:
+    goal: "Commit all changes"
+    actions:
+      - "git add all new/modified files (tasks, flow, plugin.yaml)"
+      - "git commit with descriptive message"
+      - type: write_result
+        status: done
+        summary: "Flow {name} created with {N} jobs, triggers: {trigger_types}"
+    gate: "Changes committed"
+    next: null
+
+sections:
+  - name: "Parameter Model"
+    content: |
+      **Task params are the single source of truth for dispatch parameters.**
+
+      - Do NOT use `workflow_dispatch.inputs` — it has been removed from the schema
+      - Do NOT use `with:` on jobs — it has been removed from the schema
+      - Set `on.workflow_dispatch: true` (literal boolean) to enable manual dispatch
+      - When a flow is dispatched manually, the UI collects parameters from each job's referenced task.params and passes them directly
+
+      **How parameters reach the agent:**
+      - Manual dispatch: UI reads task.params → user fills form → params stored in contract → generator substitutes {{ params.X }} in task text
+      - Auto-triggers (linear, webhook): trigger_context (event payload) is passed as params automatically — fields like object_id, object_type, action are available as {{ params.object_id }} etc.
+
+      **How context flows between jobs in a multi-job flow:**
+      - Jobs do NOT pass parameters to each other. Each job gets its own params from dispatch or trigger_context.
+      - Runtime context between jobs flows through **git artifacts**: the worker's git repo is shared, so files written by job A (result.md, artifacts in task/reports/) are visible to job B.
+      - The runner collects artifacts from dependency jobs and injects them into the next job's context automatically.
+      - Use `needs: [job-a]` to ensure job B waits for job A to complete (creates a Linear blocking relation).
+
+  - name: "Flow YAML Reference"
+    content: |
+      ```yaml
+      name: my-flow
+      version: 1
+      description: "What this flow automates"
+      params:
+        worker_name:
+          type: worker
+          description: "Which worker runs the jobs"
+      on:
+        workflow_dispatch: true          # enables manual dispatch (literal true, no inputs)
+        linear:                          # auto-trigger
+          event: project.update
+          filters:
+            status: "Approved"
+      jobs:
+        step-one:
+          type: agent
+          task: my-first-task             # task.params define what the user fills at dispatch
+          worker: $worker_name
+          timeout: 30m
+        step-two:
+          type: agent
+          task: my-second-task
+          worker: $worker_name
+          needs: [step-one]              # waits for step-one, gets its artifacts in context
+          timeout: 30m
+      ```
+
+terminal_state:
+  description: >
+    Flow YAML exists with automatic triggers, all referenced tasks exist
+    and validate, owning plugin lists the flow. Changes committed.
+  invoked_by:
+    - design-agent

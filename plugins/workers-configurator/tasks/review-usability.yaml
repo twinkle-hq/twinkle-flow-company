@@ -1,0 +1,56 @@
+name: review-usability
+description: "Check descriptions, triggers, naming conventions, and developer experience"
+trigger: "User asks to check descriptions and triggers, audit naming conventions, or review developer experience of a configuration"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    tools: [Read, Glob]
+    goal: "Collect all entities with their descriptions, triggers, and naming"
+    actions:
+      - text: "Inspect plugins/*/{tasks,flows} and the plugin's skills/ (Glob/Read) to get the full inventory of the plugin's entities"
+        why: "Usability review requires reading every entity's metadata — descriptions, triggers, names, gates."
+      - "Read each entity's full definition to access descriptions, triggers, gates, and anti-rationalization entries"
+    gate: "All entities loaded with their metadata accessible for review"
+    next: analyze
+
+  analyze:
+    goal: "Apply usability criteria to every entity"
+    actions:
+      - type: verify
+        text: "Check descriptions are specific and actionable, not vague ('manages things') — flag unclear descriptions"
+      - type: verify
+        text: "Check triggers are pushy and list concrete situations/phrases, not passive ('when needed') — flag weak triggers"
+      - "Check naming follows kebab-case convention and is descriptive — flag inconsistent or cryptic names"
+      - "Check gates are verifiable with concrete criteria, not subjective ('looks good') — flag unverifiable gates"
+      - "Check anti-rationalization entries are realistic scenarios the agent would actually face, not generic warnings — flag unrealistic entries"
+    gate: "All usability dimensions checked across every entity"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: missing or misleading description/trigger that would cause agent to misuse the entity"
+      - "Important: vague gates, weak naming, generic anti-rationalization"
+      - "Suggestion: could be more specific, minor wording improvement"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Usability review: {critical} critical, {important} important, {suggestion} suggestions"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "Usability evaluated across descriptions, triggers, naming, gates, and anti-rationalization"
+  invoked_by:
+    - review-plugin
+    - create-task
+    - find-external-skills

@@ -1,0 +1,76 @@
+name: defer-and-delegate
+description: "Universal skill for delegating work when executive cannot complete in current session — creates helper task and blocked continuation task"
+complexity: medium
+trigger: "Executive cannot resolve a problem in the current session — needs helper work, pre-analysis, human decision, or any situation where current session cannot finish the job. MUST use instead of leaving work incomplete."
+
+outputs:
+  - helper_task_id
+  - continuation_task_id
+
+hard_gates:
+  - before: define-work
+    rule: "Never finish a session with incomplete work without using this skill. If you cannot complete — delegate, do not silently drop."
+
+anti_rationalization:
+  title: "Excuses for incomplete delegation"
+  entries:
+    - thought: "I'll just mark the task as done and someone will notice"
+      reality: "Nobody will notice. Use defer-and-delegate to create explicit continuation with blocked_by dependency."
+    - thought: "The continuation task doesn't need much context, the helper result will be enough"
+      reality: "Continuation runs in a new ephemeral session. Write exactly what to do after receiving the helper result."
+    - thought: "I can handle this myself if I just try harder"
+      reality: "If confidence is below threshold, delegation is the correct action. Trying harder wastes the session timeout."
+
+phases:
+  define-work:
+    goal: "Define helper task and continuation task"
+    tools: [journal_search]
+    actions:
+      - "journal_search for similar delegations — how were helper tasks formulated, any context loss issues in continuations"
+      - text: "Define helper task: what needs to be done and by whom"
+        type: decide
+        high_confidence: "For worker → will use create-worker-task capability. For human (escalation) → save_issue on executive label, Blocked, title '[Escalation] description'"
+        low_confidence: "Unclear who should do the helper work — default to escalation"
+      - text: "Define continuation task: what executive does after helper completes"
+        why: "Must contain full context — the continuation session has no memory of the current one"
+    gate: "Both tasks formulated with sufficient context"
+    next: create-and-link
+
+  create-and-link:
+    goal: "Create tasks with correct dependency chain"
+    tools: [save_issue, get_issue]
+    actions:
+      - text: "Create helper task"
+        type: decide
+        high_confidence: "Worker task → use create-worker-task capability"
+        low_confidence: "Escalation → save_issue on executive label, Blocked, title '[Escalation] ...'"
+      - type: verify
+        check: "get_issue — helper task exists"
+        on_fail: "Retry creation"
+      - "Create continuation task on executive label: description of what to do after helper result, blocked_by → helper task, status Ready"
+      - type: verify
+        check: "get_issue — continuation exists with blocked_by set to helper task"
+        on_fail: "Retry creation with correct blocked_by"
+    gate: "Both tasks created and linked via blocked_by"
+    next: close-current
+
+  close-current:
+    goal: "Close current task with delegation record"
+    tools: [save_comment]
+    actions:
+      - "Leave comment on current task: what was done, what was delegated, links to created tasks"
+      - type: write_result
+        status: done
+        summary: "Work delegated — helper and continuation tasks created"
+    gate: "Comment posted, result written"
+    next: null
+
+terminal_state:
+  description: "Helper task exists (for worker or human). Continuation task exists on executive label, blocked by helper. Current task closed with delegation record."
+  invoked_by:
+    - task-decomposition
+    - project-completion
+    - unblock-worker
+    - review-worker-task
+    - handle-project-feedback
+    - initiatives-health-check

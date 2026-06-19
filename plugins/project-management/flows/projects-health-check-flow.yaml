@@ -1,0 +1,19 @@
+name: projects-health-check-flow
+version: 1
+description: "Periodic scan of project statuses — completion detection, cancelled cleanup, Team.md validation"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: true
+
+jobs:
+  scan:
+    type: agent
+    task: projects-health-check
+    worker: $worker_name
+    timeout: 30m

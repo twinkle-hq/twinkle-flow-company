@@ -1,0 +1,90 @@
+name: review-plugin
+description: "Comprehensive plugin review through 7 specialized lenses — dispatches parallel subagents"
+trigger: "User asks to review a plugin, audit a configuration, check plugin quality, or validate a plugin holistically"
+complexity: complex
+outputs:
+  - review_summary
+  - critical_count
+  - total_findings
+
+hard_gates:
+  - before: consolidate
+    rule: "All 7 review subagents must complete before consolidation. Do not start consolidation if any review is still running or failed without retry."
+
+anti_rationalization:
+  title: "Shortcuts that undermine review quality"
+  entries:
+    - thought: "Validation passed, so the other 6 reviews are probably fine too"
+      reality: "Validation checks schema. Coherence, design, coverage, reliability, duplication, and usability are orthogonal concerns. A valid plugin can still be poorly designed."
+    - thought: "I can skip some review lenses since this is a simple plugin"
+      reality: "Simple plugins still need all 7 lenses. A simple plugin with bad triggers or orphan entities is worse than a complex plugin that's well-structured."
+    - thought: "The first few reviews found nothing, so I can consolidate early"
+      reality: "Each lens catches different problems. Low findings in validation says nothing about usability or duplication. Run all 7."
+
+phases:
+  run-reviews:
+    type: parallel
+    tasks:
+      - review-validation
+      - review-reliability
+      - review-coherence
+      - review-coverage
+      - review-design
+      - review-duplication
+      - review-usability
+    max_iterations: 3
+    on_max: escalate
+    next: consolidate
+
+  consolidate:
+    max_iterations: 3
+    goal: "Merge, deduplicate, categorize, and produce the final review report"
+    actions:
+      - type: verify
+        check: "Results received from all 7 review subagents — none missing or incomplete"
+        on_fail: "Identify which review subagent did not complete and re-run it before consolidating"
+      - "Collect findings from all 7 review subagents"
+      - "Deduplicate — the same issue may appear in multiple lenses (e.g., a broken reference shows up in both validation and coherence)"
+      - text: "Categorize findings into sections: Schema & Validation, Reliability, Coherence, Coverage, Design, Duplication, Usability"
+        why: "Organized findings are actionable. A flat list of 30 issues is overwhelming."
+      - text: "For Critical findings: fix immediately before proceeding"
+        why: "Critical issues block functionality. Cannot ship with critical findings."
+      - text: "For Important findings: evaluate each — is it a real problem or false positive? Fix the real ones."
+        why: "Not all Important findings require action. Use judgment but err on the side of fixing."
+      - text: "For Suggestions: evaluate effort vs value. Fix high-value, low-effort ones. Document the rest as known issues."
+        why: "Suggestions are improvement opportunities, not requirements. Don't gold-plate."
+      - "Count totals: critical, important, suggestion, and overall"
+      - "Write an executive summary: overall quality assessment, top 3 most impactful issues, recommended fix order"
+    gate: "All findings merged, deduplicated, categorized, and summarized with actionable recommendations"
+    next: quality-check
+
+  quality-check:
+    type: decision
+    condition: "Are there still Critical findings remaining AND fewer than 3 review iterations completed?"
+    if_true: run-reviews
+    if_false: done
+    if_true_label: "Fix & re-review"
+    if_false_label: "Done"
+
+  done:
+    goal: "Finalize the review report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Plugin review complete after {iterations} iterations"
+    gate: "Final report written"
+    next: null
+
+terminal_state:
+  description: >
+    Comprehensive review complete across all 7 lenses. Findings merged, deduplicated,
+    and categorized. Executive summary with critical count, total findings, and
+    prioritized fix recommendations.
+  invokes:
+    - review-validation
+    - review-reliability
+    - review-coherence
+    - review-coverage
+    - review-design
+    - review-duplication
+    - review-usability

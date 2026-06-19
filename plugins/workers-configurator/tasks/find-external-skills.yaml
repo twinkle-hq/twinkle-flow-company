@@ -1,0 +1,100 @@
+name: find-external-skills
+description: "Search the skills.sh marketplace, evaluate relevance and quality, curate a list of skills to adapt"
+trigger: "User asks to find skills, search for existing solutions, look for best practices, check what's available on the marketplace, or see if someone already built something similar"
+complexity: complex
+outputs:
+  - curated_skills
+  - recommendation
+
+hard_gates:
+  - rule: "NEVER run 'npx skills add' — search and evaluate only, never install"
+  - before: curate
+    rule: "Must have fetched and read the full SKILL.md content of every candidate before curating. Do not curate based on titles and descriptions alone."
+
+anti_rationalization:
+  title: "Common shortcuts when researching external skills"
+  entries:
+    - thought: "The first result looks good enough, I'll just take that one"
+      reality: "Search with multiple keyword variations. Compare several candidates. The most popular skill isn't always the best fit for the specific use case."
+    - thought: "This has 100K installs so it must be good for us"
+      reality: "Install count shows popularity, not relevance. Read the actual content and evaluate whether it covers what we need, not just whether others use it."
+    - thought: "We don't have anything similar, so any skill is better than nothing"
+      reality: "A poorly fitting skill creates more confusion than value. Compare with existing configuration — maybe we already have partial coverage through other plugins."
+
+phases:
+  search:
+    goal: "Search marketplace with multiple keyword strategies"
+    actions:
+      - text: "Run npx skills find with the primary keywords from the user's request"
+        why: "Multiple keyword strategies surface different candidates. A single search often misses the best match."
+      - "Try 2-3 keyword variations — synonyms, broader/narrower terms, alternative framings"
+      - "Collect all potentially relevant results with their install counts and source URLs"
+      - type: verify
+        check: "At least 2 different keyword variations were searched"
+        on_fail: "Try alternative keywords — synonyms, broader terms, different framings"
+    gate: "Have a list of candidate skills from multiple searches"
+    next: evaluate
+
+  evaluate:
+    goal: "Read and evaluate each candidate for relevance and quality"
+    actions:
+      - text: "For each candidate: fetch the SKILL.md from GitHub and read the full content"
+        why: "Can't evaluate a skill by its title alone — need to understand what it actually teaches"
+      - "Score each candidate on: relevance to the need (high/medium/low), content quality, actionability"
+      - text: "Check source reputation — prefer vercel-labs, anthropics, google-labs, repos with 100+ stars"
+        why: "Unknown authors with low-star repos may have untested or misleading content"
+      - "Discard candidates that are irrelevant, low quality, or from untrustworthy sources"
+      - type: verify
+        check: "Full SKILL.md content was fetched and read for every candidate (not just title/description from search results)"
+        on_fail: "Fetch the actual SKILL.md from GitHub for each candidate before scoring"
+    gate: "Each remaining candidate has been read and scored"
+    next: compare
+
+  compare:
+    goal: "Compare candidates with each other and with existing configuration"
+    tools: [Read, Glob]
+    actions:
+      - text: "Inspect plugins/*/{tasks,flows} and plugins/*/skills/ (Glob/Read) to list existing plugins, skills, and capabilities in the workspace"
+        why: "Avoid duplicating what we already have — check for overlap with existing configuration"
+      - "Compare candidates: do any overlap? Is one strictly better than another? Do they complement each other?"
+      - "Check if any candidate covers ground already handled by existing plugins/skills"
+      - "For each candidate, note: what new value it adds, what it overlaps with, whether it fills a real gap"
+    gate: "Can list each candidate's unique value-add, overlaps with existing config, and overlaps with other candidates"
+    next: curate
+
+  curate:
+    max_iterations: 2
+    goal: "Produce a prioritized list of skills to adapt"
+    actions:
+      - "Rank remaining candidates by: value added (high first), adaptation effort (low first), quality"
+      - "For each recommended skill, document: source URL, what it provides, recommended format (task or skill), which plugin it should belong to"
+      - "If none are worth adapting, say so — no skill is better than a bad skill"
+    gate: "Curated list with clear reasoning for each recommendation"
+    next: review
+
+  review:
+    type: parallel
+    tasks: [review-coverage, review-usability]
+    next: quality-check
+
+  quality-check:
+    type: decision
+    condition: "Are there Critical findings from the review AND fewer than 2 fix iterations?"
+    if_true: curate
+    if_false: done
+    if_true_label: "Fix & re-curate"
+    if_false_label: "Done"
+
+  done:
+    goal: "Finalize the curated skills list"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Curated list of {count} skills to adapt from marketplace"
+    gate: "Final report written"
+    next: null
+
+terminal_state:
+  description: "Curated, prioritized list of external skills ready for adaptation"
+  invokes:
+    - adapt-external-skill

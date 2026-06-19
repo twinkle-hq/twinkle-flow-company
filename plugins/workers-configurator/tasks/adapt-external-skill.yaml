@@ -1,0 +1,97 @@
+name: adapt-external-skill
+description: "Adapt a specific external skill from skills.sh into workspace format — either as task YAML capability or SKILL.md"
+trigger: "User asks to adapt a specific external skill, convert a skill to Orchestra format, or integrate a skill that was identified during research"
+complexity: medium
+outputs:
+  - adapted_entity_type
+  - adapted_entity_name
+  - source_url
+
+hard_gates:
+  - rule: "NEVER run 'npx skills add' — always adapt content manually into workspace repo"
+
+anti_rationalization:
+  title: "Common shortcuts when adapting external skills"
+  entries:
+    - thought: "I can just copy the SKILL.md content as-is"
+      reality: "External skills need proper frontmatter, trigger field, and adaptation to Orchestra terminology. Raw copy won't integrate properly."
+    - thought: "I'll skip the format decision and just make it a task"
+      reality: "Not everything is an algorithm. Rules and guidelines are better as SKILL.md with a good trigger than a forced task with artificial phases."
+    - thought: "The original skill is well-structured, no need to rethink the phases"
+      reality: "External skill steps may not map 1:1 to our phases. Consider what gates make sense, where verification is needed, and what anti-rationalization applies."
+
+phases:
+  fetch:
+    goal: "Retrieve and understand the external skill content"
+    actions:
+      - text: "Fetch the SKILL.md content from the source URL or GitHub repository"
+        why: "Without full content, evaluation relies on titles which miss critical details like quality, structure, and coverage."
+      - "Read thoroughly — understand the purpose, steps, rules, and edge cases it covers"
+      - "Note the structure: is it step-by-step instructions or a set of rules/guidelines?"
+      - type: verify
+        check: "SKILL.md content is non-empty and contains actual instructions (not a 404 or placeholder)"
+        on_fail: "Try alternative URL, check GitHub repo structure, or mark this skill as unavailable"
+    gate: "Have the full content and can describe its purpose, steps, and edge cases"
+    next: evaluate
+
+  evaluate:
+    type: decision
+    condition: "Is this skill an algorithm (step-by-step process with clear phases, verification steps, completion criteria) or knowledge (rules, guidelines, best practices, reference material)?"
+    if_true: prepare-task
+    if_false: keep-as-skill
+    if_true_label: "Algorithm"
+    if_false_label: "Knowledge"
+
+  prepare-task:
+    goal: "Transform external skill content into task YAML draft"
+    skills: [system-model]
+    actions:
+      - text: "Map the skill's steps to phases — each distinct step becomes a phase with goal, actions, gate"
+        why: "External skills are flat markdown, our tasks are structured phase graphs"
+      - "Determine complexity from number of steps and decision points (simple: 1-2 phases, medium: 3-5, complex: 6+)"
+      - "Extract anti-rationalization from warnings, caveats, and common mistakes mentioned in the skill"
+      - "Identify hard gates from any MUST/NEVER rules in the skill"
+      - "Write a trigger field describing when to activate this capability"
+      - "Declare outputs — what the agent produces when following this process"
+      - "Write the draft task YAML file in the plugin's tasks/ directory"
+    gate: "Draft task YAML file exists with phases, complexity, outputs, and trigger"
+    next: validate-task
+
+  validate-task:
+    type: task
+    task: create-task
+    next: integrate
+
+  keep-as-skill:
+    goal: "Adapt the external skill as a SKILL.md in workspace format"
+    actions:
+      - "Write proper frontmatter with name and description"
+      - text: "Write a specific, pushy trigger in the description frontmatter"
+        why: "Claude undertriggers skills — the trigger must list concrete situations and user phrases"
+      - "Clean up content — remove installation instructions, Claude Code-specific references, adjust to Orchestra context"
+      - "Place in the appropriate plugin's skills/ directory"
+      - type: verify
+        check: "SKILL.md has valid frontmatter with name and description fields"
+        on_fail: "Add proper frontmatter before proceeding"
+    gate: "SKILL.md has proper frontmatter with descriptive trigger, content is adapted to Orchestra context"
+    next: integrate
+
+  integrate:
+    goal: "Place the adapted entity in workspace repo and validate"
+    tools: [Bash]
+    actions:
+      - "Save the file in the correct location (plugin/tasks/ or plugin/skills/)"
+      - "Update plugin.yaml — add to capabilities (if task) or skills (if SKILL.md)"
+      - "Run flows lint — validate the entity and plugin"
+      - "If task: run flows reliability <task>"
+      - "Git commit and push"
+      - type: write_result
+        status: done
+        summary: "Adapted {source} into {format} at {path}"
+    gate: "Entity validates, plugin validates, changes committed"
+    next: null
+
+terminal_state:
+  description: "External skill adapted into workspace format, validated, committed, and synced"
+  invoked_by:
+    - find-external-skills

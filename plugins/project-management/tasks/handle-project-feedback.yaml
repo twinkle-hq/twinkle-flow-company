@@ -1,0 +1,67 @@
+name: handle-project-feedback
+description: "Process human feedback on a project that failed review — address comments, revise description, resubmit for approval"
+complexity: medium
+
+outputs:
+  - project_id
+  - feedback_round
+
+hard_gates:
+  - before: read-feedback
+    rule: "If this is the 3rd+ feedback round, do NOT attempt revision. Escalate via defer-and-delegate immediately — the project is not converging."
+
+anti_rationalization:
+  title: "Feedback handling pitfalls"
+  entries:
+    - thought: "The human's comment is minor, I can address it superficially"
+      reality: "Every comment deserves a thread reply explaining what changed. Superficial fixes lead to more rounds."
+    - thought: "I understand what the human wants even though they didn't say it explicitly"
+      reality: "Do not infer unstated requirements. Address exactly what was written. If unclear, escalate."
+    - thought: "The feedback is similar to last round, we're almost converging"
+      reality: "Similar feedback across rounds means the revision strategy is wrong, not that you're close. Three rounds = escalate, no exceptions."
+
+phases:
+  read-feedback:
+    goal: "Understand all feedback and determine iteration count"
+    tools: [get_project, list_comments, journal_search]
+    actions:
+      - "Read project from Linear (get_project) — current description"
+      - "Read comments (list_comments) — human's specific feedback"
+      - "journal_search: past feedback on this or similar projects — typical patterns, preferred formulations"
+      - type: verify
+        check: "Count feedback rounds (from status updates or comment history). Is this round 3+?"
+        on_fail: "3+ rounds → escalate via defer-and-delegate. Project is not converging, needs direct discussion."
+    gate: "All feedback understood, iteration limit not exceeded"
+    next: revise-and-respond
+
+  revise-and-respond:
+    goal: "Address every feedback item"
+    tools: [save_comment]
+    actions:
+      - text: "For each human comment: reply in thread (save_comment with parentId) explaining what was changed and how"
+        why: "Thread replies create audit trail and show the human each change was deliberate"
+      - "Update project description to address all feedback"
+      - type: verify
+        check: "Every comment has a thread reply? All feedback items reflected in description?"
+        on_fail: "Address missed items before proceeding"
+    gate: "All feedback addressed in both thread replies and description"
+    next: resubmit
+
+  resubmit:
+    goal: "Send project back for review"
+    tools: [save_project, get_project]
+    actions:
+      - "save_project with updated description, status Pending Review"
+      - type: verify
+        check: "get_project — description updated, status is Pending Review"
+        on_fail: "Retry save_project"
+      - type: write_result
+        status: done
+        summary: "Project feedback addressed and resubmitted for review (round N)"
+    gate: "Project is in Pending Review status with updated description"
+    next: null
+
+terminal_state:
+  description: "Project is back in Pending Review with all feedback addressed. Thread replies document each change. Human will approve or request further changes."
+  invoked_by:
+    - on-project-feedback

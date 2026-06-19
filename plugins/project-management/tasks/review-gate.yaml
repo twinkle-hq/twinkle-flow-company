@@ -1,0 +1,73 @@
+name: review-gate
+description: "Create a project in Linear and send for human review — formulates goal, requirements, KPIs, and task framework"
+complexity: complex
+
+outputs:
+  - project_id
+  - project_url
+
+hard_gates:
+  - before: project-design
+    rule: "Check for duplicate projects in the same initiative before designing a new one. If a similar project exists and is not Cancelled, do not create a duplicate."
+  - before: create-in-linear
+    rule: "Subagent reviewer must return Approved before creating project in Linear. Max 3 review iterations, then escalate."
+
+anti_rationalization:
+  title: "Shortcuts in project design"
+  entries:
+    - thought: "The task description is clear enough, I can use it directly as the project description"
+      reality: "Task descriptions are input signals. Project descriptions need structured goal, requirements, KPIs, and task framework. Always formulate properly."
+    - thought: "KPIs are obvious from the goal, I don't need to spell them out"
+      reality: "Implicit KPIs cannot be verified at project completion. Every KPI must be explicit and measurable."
+    - thought: "I'll add a detailed task breakdown in the project description"
+      reality: "Project description contains a HIGH-LEVEL framework only. Detailed decomposition happens in the task-decomposition process after human approval."
+
+phases:
+  context-gathering:
+    goal: "Understand what project is needed"
+    tools: [get_initiative, list_projects, journal_search]
+    actions:
+      - "Read task description — goal, context, requirements from the request"
+      - "Read initiative the project belongs to (get_initiative)"
+      - "journal_search: similar projects created before — KPIs used, scope decisions, review feedback patterns"
+      - "Read Team.md — understand available resources for task framework"
+      - type: verify
+        check: "Check for duplicate projects in this initiative (list_projects)"
+        on_fail: "If similar active project exists — do not create duplicate, write result explaining the overlap"
+    gate: "Full understanding of project goal and initiative context"
+    next: project-design
+
+  project-design:
+    goal: "Formulate complete project description"
+    actions:
+      - "Formulate clear project goal"
+      - "Define requirements (what must be delivered)"
+      - "Define measurable KPIs (how to verify success)"
+      - text: "Compose high-level task framework (not detailed — detailization happens in task-decomposition)"
+        why: "Human reviews the framework direction, not implementation details"
+    gate: "Draft project description ready with goal, requirements, KPIs, framework"
+    next: review-loop
+
+  review-loop:
+    type: task
+    task: review-draft
+    next: create-in-linear
+
+  create-in-linear:
+    goal: "Create project and send for review"
+    tools: [save_project, get_project]
+    actions:
+      - "save_project with full description, status Pending Review, initiativeId"
+      - type: verify
+        check: "get_project — verify project created with correct description and status"
+        on_fail: "Retry save_project. If second failure — escalate."
+      - type: write_result
+        status: done
+        summary: "Project created in Pending Review status, awaiting human approval"
+    gate: "Project exists in Linear in Pending Review status"
+    next: null
+
+terminal_state:
+  description: "Project exists in Linear with status Pending Review, containing structured description with goal, requirements, KPIs, and task framework. Human will approve or request changes."
+  invoked_by:
+    - review-gate-flow

@@ -1,0 +1,41 @@
+name: review-loop
+description: >
+  Dispatch reviewer subagent, fix issues, re-dispatch until approved.
+  Use as a type:task phase in any task that needs independent quality verification.
+params:
+  - name: artifact
+    type: string
+    required: true
+    description: "What is being reviewed (e.g. task description, project description)"
+  - name: criteria
+    type: string
+    required: true
+    description: "Review criteria as numbered list"
+  - name: max_iterations
+    type: number
+    default: 3
+  - name: on_max
+    type: string
+    default: escalate
+outputs:
+  - review_result
+complexity: simple
+
+phases:
+  review:
+    goal: "Get independent verification of the artifact"
+    actions:
+      - text: >
+          Dispatch reviewer subagent with ONLY the artifact — not your reasoning.
+          Reviewer evaluates against criteria: {{ params.criteria }}
+          Reviewer returns: Approved OR Issues Found (list specific problems).
+      - type: decide
+        high_confidence: "Reviewer returned Approved"
+        low_confidence: "Issues Found → fix each issue, re-dispatch reviewer"
+    gate: "Reviewer returned Approved"
+    max_iterations: 3
+    on_max: escalate
+    next: null
+
+terminal_state:
+  description: "Artifact approved by independent reviewer"

@@ -1,0 +1,210 @@
+name: create-task
+description: >
+  Create a task definition — the most important entity for agent behavior quality.
+  Maps a human workflow into phased instructions with gates, anti-rationalization,
+  and declared outputs. Quality of the task directly determines agent reliability.
+trigger: "User asks to create a task definition, define agent behavior for a process step, design a phased workflow, or write a capability process guide"
+complexity: complex
+outputs:
+  - task_name
+  - validation_result
+  - reliability_result
+
+hard_gates:
+  - before: write-yaml
+    rule: >
+      Before writing YAML: must have documented at least 3 agent rationalization
+      failures (ways the agent will try to skip steps). If you cannot think of 3,
+      you don't understand the task well enough.
+  - before: write-yaml
+    rule: >
+      Every output must be declared in the outputs field. The runner validates
+      these at session end. Missing outputs = task failure at runtime.
+
+anti_rationalization:
+  title: "Task creation meta-failures"
+  entries:
+    - thought: "The task is simple enough that I don't need anti-rationalization"
+      reality: "All tasks with complexity >= medium need anti-rationalization. Simple-looking tasks fail in surprising ways."
+    - thought: "I can fill in the reliability patterns later"
+      reality: "Run flows reliability now. Fix issues before committing. There is no 'later' in ephemeral sessions."
+    - thought: "The phases look obvious, I don't need to simulate failure"
+      reality: "This is where most tasks fail. Phases that look obvious to you will be skipped by the agent. Simulate first."
+    - thought: "I'll just write the YAML from the requirements directly"
+      reality: "Map the HUMAN workflow first. What would a person do, step by step, including the boring verification steps?"
+    - thought: "The gate descriptions don't need to be specific, the agent will figure it out"
+      reality: "Vague gates get rationalized away. 'Everything looks good' is not a gate. 'flows lint reports no errors' is."
+
+phases:
+  gather-context:
+    skills: [system-model]
+    tools: [Read, Glob]
+    goal: "Understand what this task should accomplish"
+    actions:
+      - text: "Read the requirements — what process does this task encode?"
+        why: "Tasks encode processes. Understanding the process is prerequisite to encoding it."
+      - "What tools (MCP) will the agent have available?"
+      - "What knowledge (skills) will be injected?"
+      - "What outputs should this task produce?"
+      - "Inspect plugins/*/tasks/ (Glob/Read) — check for similar existing tasks to learn from"
+    gate: "Can list the task's purpose, each available MCP tool, and every expected output"
+    next: map-human-workflow
+
+  map-human-workflow:
+    goal: "Document how a human would do this task"
+    actions:
+      - text: >
+          Write out the HUMAN workflow step by step:
+          1. What would a person do first?
+          2. What would they check before proceeding?
+          3. Where would they verify their work?
+          4. What boring steps would they not skip?
+        why: "Agents skip steps humans wouldn't. Mapping the human workflow reveals the 'boring but critical' steps."
+      - text: "Identify verification points — where does a human double-check?"
+        why: "These become gates and verify actions. Without them, agents produce unchecked output."
+      - "Identify decision points — where does a human use judgment?"
+    gate: "Written workflow with numbered steps covering all branches, verification points, and decision points"
+    next: simulate-failures
+
+  simulate-failures:
+    goal: "Think about how an agent will try to shortcut this task"
+    actions:
+      - text: >
+          For each step in the human workflow, ask:
+          - Will an agent try to skip this? Why?
+          - What rationalization will it use?
+          - What goes wrong if it's skipped?
+          Document at least 3 rationalization failures.
+        why: "This is the MOST CRITICAL phase. Anti-rationalization is what separates working agents from broken ones."
+      - text: "For each rationalization, write the 'thought' (what the agent thinks) and 'reality' (why it's wrong)"
+        why: "These become the anti_rationalization entries. Concrete thought/reality pairs are more effective than abstract warnings."
+      - "Consider: what if the agent has wrong context? what if a tool call fails? what if validation passes but the result is wrong?"
+    gate: "At least 3 documented rationalization failures with thought/reality pairs"
+    next: design-phases
+
+  design-phases:
+    goal: "Translate the human workflow into task phases"
+    actions:
+      - text: >
+          Map human workflow steps to phases:
+          - Each distinct activity = one phase
+          - Verification points = verify actions within phases
+          - Decision points = decision phases or decide actions
+          - Phase names: lowercase-hyphenated, descriptive
+        why: "Phases structure the agent's work. Too few phases = skipped steps. Too many = confusion."
+      - "For each phase: define goal, actions (with types and why), gate, next"
+      - "Ensure every phase has a specific gate — not 'looks good' but 'tool X returns no errors'"
+      - "Add verify actions after any creation/modification step"
+      - "Set complexity: simple (1-2 phases, no judgment), medium (3-5 phases), complex (5+ phases or significant judgment), critical (affects system integrity)"
+      - text: "If this task will be used as a capability (listed in a plugin's session.capabilities), write a trigger field"
+        why: "The trigger becomes part of the SKILL.md description — it tells the agent WHEN to use this process. Without it, the agent won't know when to activate the capability."
+      - text: "Trigger format: describe specific user phrases and situations, be pushy — list concrete scenarios"
+        why: "Claude tends to undertrigger skills. 'User asks to create a plugin, add a capability' works better than 'plugin-related work'"
+      - text: >
+          If this task needs input data at trigger time (e.g., a project ID, requirements text),
+          define params: array with name, type, required, and description for each parameter.
+        why: >
+          Params are the ONLY way to pass data at trigger time. For manual dispatch, the UI
+          renders a form from task.params. For auto-triggers, trigger_context fields are matched
+          to {{ params.X }} placeholders in the task text.
+      - text: >
+          Do NOT confuse params (trigger-time input) with inter-job context (runtime data).
+          Inter-job context flows through git artifacts — files written by previous jobs are
+          available in the worker's repo. Params are for data that comes from outside the system.
+      - text: >
+          If this task benefits from deterministic validation, add hooks:
+          - SessionStart hooks: prepare context before the agent starts (e.g., load data files)
+          - Stop hooks with blocking: true: validate results before session ends (e.g., npm test, npm run lint, go build)
+          Hooks run as shell commands — not agent instructions. They are deterministic guardrails.
+        why: "Hooks catch failures that agents rationalize away. 'npm test' doesn't negotiate — it passes or fails."
+    gate: "All phases defined with specific gates and typed actions"
+    next: write-yaml
+
+  write-yaml:
+    goal: "Write the task YAML file"
+    actions:
+      - text: >
+          Write the complete task YAML with:
+          - name, description, complexity
+          - params (if task needs trigger-time input — name, type, required, description)
+          - outputs (REQUIRED, at least 1)
+          - hooks (optional — SessionStart and/or Stop hooks for deterministic validation)
+          - hard_gates (for complex+ tasks)
+          - anti_rationalization (for medium+ tasks)
+          - phases (the complete phase graph)
+          - terminal_state (description, optional invokes/invoked_by)
+      - "Place in the appropriate plugin's tasks/ directory"
+      - text: "Double-check: every output declared, every phase has a gate, anti-rationalization has 3+ entries"
+        why: "Common mistakes caught here save a validation-fix-revalidate cycle."
+    gate: "Task YAML written with all required fields"
+    next: validate
+
+  validate:
+    max_iterations: 2
+    tools: [Bash]
+    goal: "Validate the task schema and references"
+    actions:
+      - type: verify
+        check: "flows lint — must return no errors for this task"
+        on_fail: "Fix each validation error, re-validate until clean"
+    gate: "flows lint reports no errors for this task"
+    next: check-reliability
+
+  check-reliability:
+    tools: [Bash]
+    goal: "Assess task reliability and fix issues"
+    actions:
+      - type: verify
+        check: "flows reliability <task> — review the reliability score and recommendations"
+        on_fail: "Address each recommendation: add missing gates, strengthen anti-rationalization, add verify actions"
+      - text: "If score is below threshold, iterate: strengthen gates, add anti-rationalization entries, add verify actions"
+        why: "Reliability score predicts real-world success rate. Low score = agent will fail in production."
+    gate: "flows reliability returns an acceptable score"
+    next: review
+
+  review:
+    type: parallel
+    tasks: [review-validation, review-reliability, review-usability, review-coverage]
+    next: quality-check
+
+  quality-check:
+    type: decision
+    condition: "Are there Critical findings from the review AND fewer than 2 fix iterations?"
+    if_true: validate
+    if_false: preview
+    if_true_label: "Fix & re-validate"
+    if_false_label: "Preview"
+
+  preview:
+    tools: [Bash]
+    goal: "Preview and commit"
+    actions:
+      - "flows preview-skill <task> — review how the task translates to agent instructions"
+      - "Verify the preview reads naturally and covers all important steps"
+      - "git add and commit"
+      - type: write_result
+        status: done
+        summary: "Task {name} created, validated, reliability score: {score}"
+    gate: "Task previewed, committed"
+    next: null
+
+sections:
+  - name: "Params vs Context"
+    content: |
+      **params** = data provided at trigger time (dispatch form or auto-trigger event payload).
+      Declared as `params:` array in task YAML. Substituted via `{{ params.X }}` in task text.
+
+      **context** = runtime data from previous jobs in a flow.
+      Flows through git artifacts: files in the worker's repo written by earlier jobs.
+      The runner injects dependency job artifacts into the next job's session automatically.
+
+      **Rule:** Use params for external input. Use git artifacts for inter-job data.
+      Never try to pass inter-job data through params — it doesn't work.
+
+terminal_state:
+  description: >
+    Task YAML exists, passes validation, has acceptable reliability score,
+    and preview reads correctly. Changes committed to workspace repo.
+  invoked_by:
+    - design-agent
+    - create-flow

@@ -1,0 +1,56 @@
+name: review-validation
+description: "Validate all entities for schema compliance, broken references, and structural integrity"
+trigger: "User asks to validate a plugin, check for schema errors, find broken references, or run validation on configuration files"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    tools: [Bash]
+    goal: "Run all validators and collect every error and warning"
+    actions:
+      - text: "Run flows lint (whole-repo schema/reference/reliability validation) to get a full validation report"
+        why: "flows lint catches schema violations, broken references, and structural issues across all entity types at once."
+      - "Capture every error and warning — record entity name, error message, and which validator produced it"
+    gate: "Full validation report collected with all errors and warnings listed"
+    next: analyze
+
+  analyze:
+    tools: [Bash, Read]
+    goal: "Understand each error in detail and check for false positives"
+    actions:
+      - text: "For each error from gather, run flows lint and read the affected entity file to get detailed context"
+        why: "Targeted re-runs and direct file inspection provide richer context about what exactly is wrong and where."
+      - "For each error, determine: is it a real issue or a false positive caused by validator limitations?"
+      - type: verify
+        text: "Confirm every real error has a clear description of what is wrong and what the fix would be"
+    gate: "All errors investigated, false positives separated from real issues, fixes identified"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: blocks functionality — broken references, invalid schema, missing required fields"
+      - "Important: degrades behavior — deprecated patterns, weak references, ambiguous configs"
+      - "Suggestion: improvement opportunity — cleaner structure, better naming"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Validation review: {critical} critical, {important} important, {suggestion} suggestions"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "All entities validated, findings documented with severity scores"
+  invoked_by:
+    - review-plugin
+    - create-flow
+    - create-task
+    - design-agent

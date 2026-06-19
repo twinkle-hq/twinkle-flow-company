@@ -1,0 +1,58 @@
+name: review-reliability
+description: "Check tasks for anti-rationalization, hard gates, review loops, and reliability patterns"
+trigger: "User asks to check if tasks have proper anti-rationalization, verify reliability patterns, or audit task quality gates"
+complexity: simple
+outputs:
+  - findings
+
+phases:
+  gather:
+    tools: [Read, Glob]
+    goal: "List all tasks and identify those requiring reliability checks"
+    actions:
+      - text: "Inspect plugins/*/tasks/ (Glob/Read) to find all tasks owned by the target plugin"
+        why: "Need the full task inventory before filtering to those that require reliability analysis."
+      - "Identify tasks with complexity >= medium — these are the targets for reliability review"
+      - "Read each target task's full definition to have context for analysis"
+    gate: "All tasks listed, medium+ complexity tasks identified and loaded"
+    next: analyze
+
+  analyze:
+    tools: [Bash]
+    goal: "Apply reliability criteria to each qualifying task"
+    actions:
+      - text: "For each task with complexity >= medium, run flows reliability <task>"
+        why: "flows reliability scores anti-rationalization, hard gates, review loops, and gate specificity."
+      - type: verify
+        text: "Check anti-rationalization entries are specific to the task's domain, not generic platitudes like 'always validate' or 'be thorough'"
+      - type: verify
+        text: "Check hard gates are truly non-negotiable constraints, not soft suggestions disguised as gates"
+      - "Check review loops exist for tasks that produce artifacts others depend on"
+      - "Check gate criteria are verifiable — measurable or binary, not subjective"
+    gate: "All medium+ complexity tasks checked, every reliability dimension evaluated"
+    next: score
+
+  score:
+    goal: "Categorize and score each finding"
+    actions:
+      - "For each finding, assign severity: Critical / Important / Suggestion"
+      - "Critical: missing reliability patterns in complex task — no anti-rationalization, no hard gates"
+      - "Important: weak patterns — generic platitudes, soft gates, missing review loops"
+      - "Suggestion: patterns exist but could be stronger or more specific"
+    gate: "All findings scored with rationale for severity assignment"
+    next: report
+
+  report:
+    goal: "Produce structured findings report"
+    actions:
+      - type: write_result
+        status: done
+        summary: "Reliability review: {critical} critical, {important} important, {suggestion} suggestions across {M} tasks checked"
+    gate: "Report written with all findings"
+    next: null
+
+terminal_state:
+  description: "All tasks checked for reliability patterns, findings documented with severity scores"
+  invoked_by:
+    - review-plugin
+    - create-task

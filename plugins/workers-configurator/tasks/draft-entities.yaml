@@ -1,0 +1,166 @@
+name: draft-entities
+description: >
+  Take a Brief artifact and create all YAML entities in dependency order:
+  MCP → skills → tasks → flows → plugin. Validates each entity immediately
+  after creation. Produces committed YAML files in the repository.
+trigger: >
+  Brief has been approved and drafting of YAML configuration files should begin,
+  or user asks to implement a design from an existing Brief document
+complexity: medium
+outputs:
+  - entities_created
+  - validation_results
+
+hard_gates:
+  - before: create-entities
+    rule: >
+      Must have parsed the Brief and reconstructed the full entity list with
+      dependency graph before creating any files. Do not start writing YAML
+      without knowing the complete picture and creation order.
+  - before: verify-completeness
+    rule: >
+      Every entity created must pass `flows lint` before proceeding to the
+      next entity. Do not accumulate unvalidated files.
+
+anti_rationalization:
+  title: "Shortcuts during entity drafting"
+  entries:
+    - thought: "The Brief is detailed enough, I can write all entities at once without checking order"
+      reality: "Dependency order matters. Creating a flow before its tasks exist causes validation failures. Creating a plugin before its MCP entities exist causes broken references. Always follow the dependency graph."
+    - thought: "This task YAML is simple, it doesn't need anti-rationalization entries"
+      reality: "All tasks with complexity >= medium need anti-rationalization. What looks simple to you will be shortcut by the agent. The Brief's complexity estimate is a minimum."
+    - thought: "I'll validate everything at the end instead of after each entity"
+      reality: "Validate after each entity. Errors compound — a wrong MCP name propagates to the plugin, then to every flow. Catching errors early prevents cascading fixes."
+    - thought: "The Brief says 'simple' complexity so I'll write minimal phases"
+      reality: "Simple means 1-2 phases, not zero effort. Even simple tasks need goal, actions, gate, next, outputs, and terminal_state. Check the system-model for required fields."
+    - thought: "I'll skip the skill files since the tasks are self-explanatory"
+      reality: "If the Brief specifies skills, create them. Plugins reference skills by path — missing files cause silent injection failures."
+    - thought: "Gates can be vague for now, I'll tighten them in review"
+      reality: "Vague gates get rationalized away by agents. 'Looks good' is not a gate. 'flows lint reports no errors' is. Write specific gates now."
+
+phases:
+  parse-brief:
+    skills: [system-model]
+    goal: "Extract the complete entity list, dependency graph, and creation order from the Brief"
+    actions:
+      - text: "Read the Brief thoroughly — especially the Entity Map and Creation Order sections"
+        why: "The Brief is the single source of truth. Missing an entity here means it won't be created."
+      - "List every entity to create: MCP entities, skills, tasks, flows, plugins"
+      - "Reconstruct the dependency graph: which entities reference which"
+      - "Confirm creation order: MCP → skills → tasks → flows → plugin"
+      - "For each task: note the complexity, key phases, outputs, and any anti-rationalization hints from the Brief"
+      - type: verify
+        check: "Entity list matches the Brief's Entity Map — nothing missing, nothing extra"
+        on_fail: "Re-read the Brief and reconcile differences"
+    gate: "Complete entity list with dependency graph and creation order extracted from Brief"
+    next: create-entities
+
+  create-entities:
+    max_iterations: 3
+    tools: [Bash, Read]
+    goal: "Create all YAML entities in dependency order, validating each immediately"
+    actions:
+      - text: >
+          Follow dependency order strictly:
+          1. MCP entities (mcp/*.yaml) — if any new ones needed
+          2. Skill files (plugins/{name}/skills/**/SKILL.md) — knowledge files with proper frontmatter
+          3. Tasks (plugins/{name}/tasks/*.yaml) — full phase definitions with gates, anti-rationalization, outputs
+          4. Flows (plugins/{name}/flows/*.yaml) — DAG with triggers, jobs, dependencies
+          5. Plugin (plugins/{name}/plugin.yaml) — references all above
+        why: "Order prevents missing references. Creating out of order causes validation failures that cascade."
+      - text: "For each MCP entity: write YAML, then run flows lint and check for errors in that file"
+        why: "MCP must exist before plugins reference them."
+      - text: "For each skill: write SKILL.md with proper frontmatter (name, description). Ensure trigger is specific and pushy."
+        why: "Skills without proper frontmatter fail injection. Weak triggers mean the agent won't use the skill."
+      - text: >
+          For each task: write the complete YAML following the Brief's design.
+          Include: name, description, complexity, outputs (required), anti_rationalization (for medium+),
+          hard_gates (for complex+), phases (with goal, actions, gate, next for each), terminal_state.
+          Then run flows lint and flows reliability <task> for medium+.
+        why: "Tasks are the most important entity for agent behavior quality. Every field matters."
+      - text: "For each flow: write YAML with triggers, params, jobs. Then run flows lint and check for errors in that file."
+        why: "Flow must reference existing tasks. Validation catches broken task references and missing triggers."
+      - text: "For the plugin: write plugin.yaml referencing all MCP, skills, capabilities, flows, hooks. Then run flows lint."
+        why: "Plugin ties everything together. Missing references mean broken capabilities at runtime."
+      - type: verify
+        check: "Each entity passes flows lint immediately after creation"
+        on_fail: "Fix lint errors before creating the next entity. Do not accumulate unvalidated files."
+    gate: "All entities created and individually validated"
+    next: verify-completeness
+
+  verify-completeness:
+    tools: [Bash]
+    goal: "Cross-check against Brief and run final validation"
+    actions:
+      - text: "Compare created entities against the Brief's Entity Map — verify nothing was missed"
+        why: "It's easy to lose an entity during creation. The Brief is the checklist."
+      - type: verify
+        check: "flows lint — whole-repo validation returns no errors"
+        on_fail: "Fix remaining errors. If an entity is missing, create it now following the same validate-after-create pattern."
+      - "git add all new and modified files"
+      - "git commit with descriptive message listing all entities created"
+      - type: write_result
+        status: done
+        summary: "Drafted {N} entities ({tasks} tasks, {flows} flows, {plugins} plugins, {mcp} MCP, {skills} skills). All validated."
+    gate: "All entities match Brief, flows lint passes, changes committed"
+    next: null
+
+sections:
+  - name: "Task YAML Checklist"
+    content: |
+      When writing each task YAML, verify these required elements:
+
+      **Always required:**
+      - name (kebab-case)
+      - description (specific, actionable)
+      - complexity (simple | medium | complex | critical)
+      - outputs (at least 1)
+      - phases (at least 1, each with goal, actions, gate, next)
+      - terminal_state (with description)
+
+      **Required for medium+ complexity:**
+      - anti_rationalization (with title and at least 3 entries for complex)
+      - Each entry has thought (what agent thinks) and reality (why it's wrong)
+
+      **Required for complex+ complexity:**
+      - hard_gates (non-negotiable rules checked before specific phases)
+
+      **For capabilities (passive tasks):**
+      - trigger field (specific, pushy — list concrete user phrases)
+
+      **Common mistakes:**
+      - Forgetting outputs → runner fails at session end
+      - Vague gates ("looks good") → agent rationalizes past them
+      - Generic anti-rationalization ("be thorough") → doesn't prevent real failures
+      - Missing terminal_state → no contract for what "done" means
+
+  - name: "Flow YAML Checklist"
+    content: |
+      When writing each flow YAML, verify these required elements:
+
+      **Always required:**
+      - name (kebab-case)
+      - version (start at 1)
+      - description
+      - on (triggers — must include at least one automatic trigger: schedule, linear, or webhook)
+      - jobs (at least 1, each with type, task, worker, timeout)
+
+      **Parameter model:**
+      - Task params are the single source of truth for dispatch parameters
+      - Do NOT use workflow_dispatch.inputs — removed from schema
+      - Do NOT use job with: fields — removed from schema
+      - Set on.workflow_dispatch: true (literal boolean) for manual dispatch
+
+      **Data flow between jobs:**
+      - Jobs do NOT pass parameters to each other
+      - Runtime context flows through git artifacts (shared repo)
+      - Use needs: [job-a] for dependency ordering
+      - Runner injects dependency artifacts into next job's context
+
+terminal_state:
+  description: >
+    All YAML entities from the Brief exist in the repository, each individually
+    validated. Full workspace validation passes. Changes committed.
+    Ready for semantic review in the next job.
+  invoked_by:
+    - flow-creation

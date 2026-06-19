@@ -1,0 +1,29 @@
+name: review-draft
+description: "Independent quality review of a draft artifact — project description, task decomposition, or resolution strategy"
+complexity: simple
+
+outputs:
+  - review_verdict
+
+phases:
+  review:
+    goal: "Evaluate the draft against provided criteria"
+    actions:
+      - "Read the draft artifact provided in task context"
+      - "Apply review criteria specified in task description"
+      - "Check for completeness, consistency, and quality"
+      - type: decide
+        high_confidence: "Draft meets all criteria — verdict Approved"
+        low_confidence: "Issues found — list specific problems with actionable feedback, verdict Rejected"
+      - type: write_result
+        status: done
+        summary: "Review complete — verdict with detailed feedback"
+    gate: "Review verdict written with specific feedback"
+    next: null
+
+terminal_state:
+  description: "Review verdict (Approved or Rejected) with detailed feedback on the draft artifact."
+  invoked_by:
+    - review-gate
+    - task-decomposition
+    - unblock-worker

@@ -1,0 +1,26 @@
+name: project-management
+description: "Executive PM-agent — coordinates worker agents through Linear, manages project lifecycle, monitors health, reviews results, escalates blockers"
+
+session:
+  mcp:
+    - linear-mcp
+  skills:
+    - skills/executive-overview/SKILL.md
+    - skills/twinkle-executive-framework/SKILL.md
+  capabilities:
+    - create-worker-task
+    - defer-and-delegate
+
+flows:
+  - on-project-approved
+  - on-project-feedback
+  - on-task-review
+  - on-task-blocked
+  - on-escalation-ready
+  - review-gate-flow
+  - project-completion-flow
+  - projects-health-check-flow
+  - initiatives-health-check-flow
+  - project-progress-review-flow
+  - initiative-kickoff
+  - task-decomposition

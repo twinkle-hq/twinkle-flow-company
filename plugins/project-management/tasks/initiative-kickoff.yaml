@@ -1,0 +1,66 @@
+name: initiative-kickoff
+description: >
+  Analyze a newly activated initiative and create projects via review-gate.
+  Triggered when a human moves an initiative from Planned to Active.
+intro: >
+  An initiative has just been activated by a human. Executive reads the
+  initiative description, determines what projects are needed to fulfill it,
+  and creates each project through the review-gate process.
+params:
+  - name: initiative_id
+    type: string
+    required: true
+    description: "Linear initiative ID to kick off"
+outputs:
+  - projects_created
+  - initiative_summary
+complexity: medium
+
+phases:
+  gather:
+    goal: "Understand the initiative scope and context"
+    actions:
+      - "get_initiative {{ params.initiative_id }} — read description, goals, scope"
+      - "list_projects for this initiative — check if any projects already exist"
+      - "journal_search: similar past initiatives — what project structure worked, what was over/under-scoped"
+      - "Read Team.md — available workers and capabilities"
+    gate: "Full understanding of initiative goals and available resources"
+    next: plan
+
+  plan:
+    goal: "Determine what projects are needed"
+    actions:
+      - "Break initiative goal into distinct deliverables — each deliverable = one project"
+      - "Consider team capabilities when scoping each project"
+      - type: verify
+        check: "Each planned project maps to at least one initiative goal. No duplicate with existing projects."
+        on_fail: "Remove duplicates, adjust scope"
+    gate: "Clear list of projects needed with rationale for each"
+    next: create-projects
+
+  create-projects:
+    type: task
+    task: review-gate
+    checklist_note: >
+      For EACH project: run review-gate to draft description,
+      get subagent review, create in Linear as Pending Review.
+      Link each project to the initiative.
+    next: report
+
+  report:
+    goal: "Summarize what was created"
+    actions:
+      - "save_status_update on initiative: kickoff complete, N projects created in Pending Review"
+      - type: verify
+        check: "get_initiative with projects — confirm all projects exist and are linked"
+        on_fail: "Fix missing links, retry verification"
+      - type: write_result
+        status: done
+        summary: "Initiative kickoff complete, N projects created in Pending Review"
+    gate: "Status update written, all projects verified"
+    next: null
+
+terminal_state:
+  description: >
+    All projects for the initiative are created in Pending Review status,
+    awaiting human approval.

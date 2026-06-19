@@ -1,0 +1,21 @@
+name: on-project-feedback
+version: 1
+description: "Handle project feedback when human requests changes during review"
+
+params:
+  worker_name:
+    type: worker
+
+on:
+  linear:
+    event: project.update
+    filters:
+      status: [Changes Requested]
+  workflow_dispatch: true
+
+jobs:
+  handle-feedback:
+    type: agent
+    task: handle-project-feedback
+    worker: $worker_name
+    timeout: 30m

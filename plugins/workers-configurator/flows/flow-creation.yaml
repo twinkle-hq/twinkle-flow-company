@@ -1,0 +1,59 @@
+name: flow-creation
+version: 1
+description: >
+  End-to-end process for creating flow-based configurations: capture requirements,
+  design entity map, draft YAML entities, validate and review across multiple lenses,
+  then test in sandbox with baseline comparison and iterative improvement.
+params:
+  configurator:
+    type: worker
+    description: "Worker that performs all flow-creation jobs"
+on:
+  workflow_dispatch: true
+jobs:
+  capture-and-design:
+    type: agent
+    task: capture-and-design
+    worker: $configurator
+    timeout: 60m
+
+  review-brief:
+    type: human
+    needs: [capture-and-design]
+    message: "Review the captured requirements and entity-design brief before drafting begins."
+
+  draft:
+    type: agent
+    task: draft-entities
+    worker: $configurator
+    needs: [review-brief]
+    timeout: 60m
+
+  review-draft:
+    type: human
+    needs: [draft]
+    message: "Review the drafted YAML entities before semantic validation and review."
+
+  validate-and-review:
+    type: agent
+    task: validate-and-review
+    worker: $configurator
+    needs: [review-draft]
+    timeout: 45m
+
+  review-validation:
+    type: human
+    needs: [validate-and-review]
+    message: "Review the validation and multi-lens review results before sandbox testing."
+
+  test-and-iterate:
+    type: agent
+    task: test-and-iterate
+    worker: $configurator
+    needs: [review-validation, capture-and-design]
+    timeout: 90m
+
+  review-tests:
+    type: human
+    needs: [test-and-iterate]
+    message: "Review the sandbox test results and iterations before the configuration is considered production-ready."
