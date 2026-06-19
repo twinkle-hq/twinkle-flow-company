@@ -65,9 +65,12 @@ per_worker: true                       # default true for stdio
 ```
 
 ```yaml
-# internal — Orchestra core services. RESERVED: these live in the SHARED repo only.
+# internal — Orchestra core services. RESERVED + RUNTIME-SEEDED.
 # The five builtins (linear-mcp, journal-mcp, team-mcp, orchestra-api,
-# telegram-inbox) are already seeded — do not redeclare them in a workspace repo.
+# telegram-inbox) are seeded directly into mcp-registry (the runtime source of
+# truth) — do not redeclare them in a library repo. Any mcp/*.yaml mirror in a
+# library repo is runtime-inert; keep it only as a cross-reference anchor for
+# session.mcp lint checks.
 name: linear-mcp
 description: Scoped Linear access
 connection_type: internal
@@ -80,13 +83,13 @@ auth: { type: internal_secret }
 
 **Rules `flows lint` enforces for MCP entities:**
 - `connection_type` is required and must be one of the five above.
-- **Workspace repos** cannot use `connection_type: internal` and cannot shadow any of the five reserved builtin names. Use `sidecar-http` / `sidecar-stdio` for a workspace-local container.
+- **Library repos** cannot use `connection_type: internal` and cannot shadow any of the five reserved builtin names. Use `sidecar-http` / `sidecar-stdio` for a repo-local container.
 - `remote-pat` and `remote-oauth` URLs must be `https://`.
 - `tool_filter` only works on sidecar types (enforced by `mcp-runtime /proxy`; remote paths have no proxy layer).
 - `internal.registration_payload_fields` entries must be in the context-bag vocabulary: `task_id`, `task_identifier`, `team_id`, `scope_labels`, `visible_workers`, `role`. `workspace` and `worker` are always sent implicitly — do not list them.
 - For sidecar `env_schema`, mark credential fields with `secret: true` so the Settings UI renders them as password inputs and the API redacts them on read.
 
-Declarations live in the shared repo (`mcp/` at repo root — for reserved internals + any org-wide provider) or the workspace repo (`mcp/` at the workspace-repo root). Workspace entries override shared ones by name, except reserved internals. Create MCP entities before plugins that reference them.
+MCP entity declarations live in a library repo's `mcp/` directory (flat, at the repo root). The five reserved internals are seeded into mcp-registry at the platform level; a library repo only declares its own `sidecar-http` / `sidecar-stdio` / `remote-pat` / `remote-oauth` providers. Create MCP entities before plugins that reference them.
 
 ### Plugin
 The atomic unit of agent capability. Lives in `plugins/{name}/plugin.yaml`.
@@ -192,7 +195,7 @@ on:
     event: issue.create
     filters:
       labels: [my-label]
-  workflow_dispatch: true    # optional, for debugging only
+  workflow_dispatch: true    # enables manual/team-mcp dispatch (valid alone for dispatch-only flows)
 jobs:
   step1:
     type: agent
@@ -207,9 +210,9 @@ jobs:
     timeout: 30m
 ```
 
-**Trigger types:** `schedule` (cron), `linear` (webhook events with filters), `webhook` (external), `workflow_dispatch` (manual/debug only).
+**Trigger types:** `schedule` (cron), `linear` (webhook events with filters), `webhook` (external), `workflow_dispatch` (manual / team-mcp dispatch).
 
-**Triggers:** Flows should ideally have at least one automatic trigger (schedule, linear, or webhook). `workflow_dispatch` alone is valid but means the flow can only be dispatched manually or via team-mcp. Exception: meta-configurator flows like design-agent are dispatch-only (workflow_dispatch) since agent design is always initiated by a human or another agent, not by events.
+**Triggers:** Event-driven flows should have at least one automatic trigger (schedule, linear, or webhook) — without one they never fire on their own. `workflow_dispatch` alone is also fully valid (the validator accepts it) and is the correct choice for dispatch-initiated processes: meta-configurator flows like `design-agent`, and the executive's `task-decomposition`, are intentionally dispatch-only since they are always initiated by a human or another agent, not by a real-world event. Use an automatic trigger when the process should react to events; use `workflow_dispatch`-only when it is always explicitly dispatched.
 
 **Data flow between jobs:** Job outputs (from task YAML `outputs`) are uploaded as Linear documents. Next job receives dependency documents injected at session start. Only direct `needs` are injected.
 
@@ -316,19 +319,68 @@ MCP Entity  <--  Plugin  -->  Role  -->  Worker
 3. Roles group plugins into presets (optional)
 4. Workers get plugins assigned (directly or via role)
 
-## Two-Tier Store
+## Packaging & Distribution (repos + manifests + MVS)
 
-- **Shared repo** (`data/flows/`): system-level entities, read-only to workspace agents
-- **Workspace repo**: your workspace's entities, fully editable
+Entities are distributed as **git repos with a `flows.toml` manifest** — there is
+no `data/flows/` shared repo and no two-tier store. Each repo is a self-contained
+**library**: a `flows.toml` at the root declares what it is, what it exposes, and
+what it depends on.
 
-System plugins (prefixed `system-` or `core-`) live in the shared repo. Custom plugins live in workspace repos.
+```toml
+# flows.toml — repo manifest
+[package]
+name = "artme-dev/twinkle-flow-company"   # canonical id (owner/repo)
+version = "v0.1.0"                          # semver-ish git tag
+
+[exports]
+plugins = "*"        # which plugins this repo exposes ("*" = all, or a list)
+roles = "*"          # which roles this repo exposes
+
+[dependencies]
+"artme-dev/twinkle-flow-core" = "v0.1.0"    # other repos this one needs
+```
+
+**MVS resolution.** A workspace declares an ordered list of attached libraries.
+flows-core's **MVS (Minimal Version Selection)** resolver walks each library's
+`[dependencies]`, clones + pins every transitive repo at the minimum version that
+satisfies all constraints, and merges the exported entities into a single
+**workspace build list**. Cross-repo references (e.g. a company role listing the
+core plugin `core-memory`) resolve at runtime against this merged view — which is
+why `flows lint` (strictly repo-local) emits a benign "Referenced plugin not
+found" warning for a cross-repo ref that MVS resolves fine.
+
+### How a repo reaches a worker — two attach mechanisms
+
+1. **Per-workspace library** (opt-in, per workspace). The admin attaches a repo
+   to a specific workspace (`POST /api/config/workspaces/<ws>/libraries`).
+   flows-service clones it, MVS-resolves the build list, and serves the merged
+   view to that workspace's workers. **This repo (`twinkle-flow-company`) is a
+   library** — attach it to a workspace; it is NOT force-attached.
+
+2. **Force-attach** (admin-global — injected into every worker session of every
+   workspace, independent of attached libraries). Two tiers:
+   - **system tier** (`twinkle-flow-system`: `system-result`,
+     `system-autocommit`, `system-kick-start`) — **locked**: non-removable, every
+     plugin always on. The platform cannot run without these.
+   - **core tier** (`twinkle-flow-core`: `core-state`, `core-memory`,
+     `core-summary`) — default-on but **toggleable** per plugin.
+
+   The official force-attach catalog is seeded from
+   `config-service/preset-repos.js` (`SHIPPED_CATALOG`).
+
+So a worker's effective entity set = force-attached system + core plugins
+(global) + the plugins/roles MVS-resolved from its workspace's attached
+libraries. The runner reads the worker's flat `plugins` list (the `workers.role`
+column was dropped — applying a role just copies the role's plugins into the
+worker's `plugins` at creation).
 
 ## Directory Structure
 
-Your workspace repo has this structure at its root:
+Every library repo (this one included) has this structure at its root:
 
 ```
-<workspace-repo>/
+<repo>/
+  flows.toml              Manifest: [package] / [exports] / [dependencies] (required)
   mcp/                    MCP entity YAMLs (flat)
   plugins/                Plugin directories
     {name}/
@@ -337,11 +389,16 @@ Your workspace repo has this structure at its root:
       flows/              Flow YAMLs (optional)
       tasks/              Task YAMLs (optional)
   roles/                  Role YAMLs (flat)
+  .flows-lint.yaml        Optional: lint suppress config (e.g. silence benign
+                          cross-repo role warnings)
 ```
 
-All entities belong to plugins. There is no shared/ directory — tasks, flows, and skills are always owned by a plugin.
-
-You work in your workspace repo (cloned as your git_repo). Paths are relative to the repo root — `plugins/my-plugin/plugin.yaml`, not `data/flows/plugins/...`. The shared repo has the same structure but is read-only to you.
+All entities belong to plugins — tasks, flows, and skills are always owned by a
+plugin. There is no `shared/` directory and no `data/flows/...` prefix. Paths are
+relative to the repo root — `plugins/my-plugin/plugin.yaml`. You author and edit
+entities in your repo (cloned as your git_repo); the runner-side git guards
+commit and push your changes. Force-attached system/core repos are resolved
+read-only by the platform — you don't edit them.
 
 ## Naming Conventions
 

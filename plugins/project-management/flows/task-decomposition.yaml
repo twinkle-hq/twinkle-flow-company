@@ -2,11 +2,13 @@ name: task-decomposition
 version: 1
 description: "Decompose an approved project into worker tasks"
 
+# WORKFLOW_DISPATCH-ONLY: this flow is dispatched manually (or via team-mcp).
+# The canonical event-triggered decomposition path is `on-project-approved.yaml`,
+# which fires on the project.update/Approved Linear event and invokes the same
+# `task-decomposition` task. Adding an `on.linear` block here would double-fire
+# decomposition on a single Approved event (EXEC-2) and create duplicate worker
+# tasks. Keep this dispatch-only.
 on:
-  linear:
-    event: project.update
-    filters:
-      status: "Approved"
   workflow_dispatch: true
 
 jobs:

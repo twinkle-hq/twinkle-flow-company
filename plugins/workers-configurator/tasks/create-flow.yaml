@@ -1,7 +1,7 @@
 name: create-flow
 description: >
   Create a flow (DAG of jobs) with proper triggers, task references,
-  and dependency graph. Ensures automatic triggers are present.
+  and dependency graph. Picks the right trigger for the process.
 trigger: "User asks to create a flow, automate a multi-step process, set up event-triggered orchestration, or define a DAG of tasks"
 complexity: complex
 outputs:
@@ -12,9 +12,12 @@ outputs:
 hard_gates:
   - before: write-flow-yaml
     rule: >
-      Every flow MUST have at least one automatic trigger (schedule, linear,
-      or webhook). workflow_dispatch alone is for debugging only and will
-      fail validation. Do not proceed without an automatic trigger.
+      Every flow MUST have at least one trigger under `on:`. Prefer an
+      automatic trigger (schedule, linear, or webhook) for event-driven
+      processes. `workflow_dispatch: true` alone is also valid — the
+      validator accepts dispatch-only flows (e.g. design-agent,
+      task-decomposition are dispatch-only by design). Use dispatch-only
+      when the process is always initiated by a human or another agent.
   - before: write-flow-yaml
     rule: >
       All tasks referenced by jobs must exist as YAML files before the flow
@@ -23,8 +26,8 @@ hard_gates:
 anti_rationalization:
   title: "Trigger and validation shortcuts"
   entries:
-    - thought: "workflow_dispatch is enough for now, I'll add a real trigger later"
-      reality: "Validation will fail. Add the automatic trigger now. There is no 'later' — each session is ephemeral."
+    - thought: "This is an event-driven process but I'll just use workflow_dispatch for now and add the real trigger later"
+      reality: "There is no 'later' — each session is ephemeral. If the process is meant to react to events (a project being approved, a task being blocked), wire the automatic trigger NOW or the flow will be dead code. (workflow_dispatch-only is fine when the process is genuinely dispatch-initiated — but don't use it as a placeholder for a missing event trigger.)"
     - thought: "I need to add workflow_dispatch.inputs to define dispatch parameters"
       reality: "workflow_dispatch.inputs was removed. Parameters come from task.params. Just set workflow_dispatch: true."
     - thought: "I need job.with to map trigger context to task params"
@@ -80,16 +83,20 @@ phases:
     goal: "Define how this flow gets triggered"
     actions:
       - text: >
-          Choose at least one automatic trigger:
-          - schedule: for periodic processes (cron expression)
-          - linear: for event-driven processes (issue/project/initiative events + filters)
-          - webhook: for external system events
-        why: "Flows without automatic triggers are dead code. The trigger is what makes the process proactive."
-      - "Optionally add workflow_dispatch: true to enable manual dispatch from the UI"
+          Decide how this process is initiated:
+          - Event-driven? Use an automatic trigger:
+            - schedule: for periodic processes (cron expression)
+            - linear: for issue/project/initiative events + filters
+            - webhook: for external system events
+          - Always initiated by a human or another agent (no real-world event)?
+            Use workflow_dispatch: true alone — this is a valid, intentional
+            dispatch-only flow (e.g. design-agent, task-decomposition).
+        why: "An event-driven process without an automatic trigger is dead code. But a dispatch-initiated process is legitimately dispatch-only — don't bolt on a fake event trigger to satisfy a rule that doesn't exist."
+      - "Add workflow_dispatch: true to enable manual dispatch from the UI (combine with an automatic trigger, or use it alone for dispatch-only flows)"
       - type: verify
-        check: "At least one of schedule, linear, or webhook is defined"
-        on_fail: "Add an automatic trigger. workflow_dispatch alone is not sufficient."
-    gate: "At least one automatic trigger defined"
+        check: "At least one trigger is defined under `on:` (an automatic trigger for event-driven processes, or workflow_dispatch: true for dispatch-only ones)"
+        on_fail: "Add the appropriate trigger. If the process should react to a real-world event, add schedule/linear/webhook; otherwise workflow_dispatch: true alone is correct."
+    gate: "At least one trigger defined, matching how the process is actually initiated"
     next: create-tasks
 
   create-tasks:
@@ -111,7 +118,7 @@ phases:
           Write flow YAML with:
           - name, version (start at 1), description
           - params (worker references only, type: worker)
-          - on (triggers — must include automatic trigger; workflow_dispatch: true if manual dispatch needed)
+          - on (triggers — automatic trigger for event-driven flows, or workflow_dispatch: true alone for dispatch-only flows)
           - jobs (DAG with task refs, workers, needs, timeouts — NO with: field)
           Do NOT add workflow_dispatch.inputs or job with: fields — parameters come from task.params automatically.
       - "Place in the owning plugin's flows/ directory"
@@ -209,7 +216,9 @@ sections:
 
 terminal_state:
   description: >
-    Flow YAML exists with automatic triggers, all referenced tasks exist
-    and validate, owning plugin lists the flow. Changes committed.
+    Flow YAML exists with a trigger matching how the process is initiated
+    (automatic for event-driven, workflow_dispatch-only for dispatch-initiated),
+    all referenced tasks exist and validate, owning plugin lists the flow.
+    Changes committed.
   invoked_by:
     - design-agent

@@ -5,3 +5,11 @@ version = "v0.1.0"
 [exports]
 plugins = "*"
 roles = "*"
+
+# The two roles (executive, configurator) reference core plugins (core-memory,
+# core-summary) that live in twinkle-flow-core. Declared here for MVS correctness
+# so sync/tidy/buildList clone + pin twinkle-flow-core into the merged workspace
+# view. This does NOT silence the repo-local `flows lint` cross-repo warnings —
+# .flows-lint.yaml handles those.
+[dependencies]
+"artme-dev/twinkle-flow-core" = "v0.1.0"

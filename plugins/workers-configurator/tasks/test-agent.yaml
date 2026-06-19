@@ -1,7 +1,8 @@
 name: test-agent
 description: >
   Test a configured agent by creating a test worker, assigning a test task,
-  running it, and evaluating the result. Uses orchestra-api MCP tools.
+  running it, and grading the ARTIFACTS it produces (generated entity files +
+  flows-lint result), not execution-log content. Uses orchestra-api MCP tools.
 trigger: "User asks to test an agent configuration, verify a role works correctly, run a sandbox test, or validate that a configured worker performs as expected"
 complexity: medium
 outputs:
@@ -22,7 +23,9 @@ anti_rationalization:
     - thought: "I'll just check the config looks right instead of running a real test"
       reality: "Config review catches structural issues. Only a real test reveals runtime failures like wrong MCP tools, missing context, or bad phase flow."
     - thought: "The test task succeeded, so the agent is ready for production"
-      reality: "One successful test is necessary but not sufficient. Check logs for rationalization, skipped steps, and lucky successes."
+      reality: "One successful test is necessary but not sufficient. Inspect the produced artifacts: do the generated entity files have the expected structure, and does flows lint pass? A 'done' status with malformed or lint-failing entities is a failure."
+    - thought: "I'll read the execution logs to check whether the agent skipped steps"
+      reality: "get_task_logs returns only run metrics (tokens, cost, duration, status) — not the JSONL behavioral trace. You CANNOT read step-by-step behavior from this tool. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read needs a platform tool (history-service execution-logs report) — that is a follow-up, not something this task can do."
     - thought: "Cleanup isn't important, I'll leave the test worker running"
       reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
 
@@ -71,21 +74,31 @@ phases:
     next: evaluate
 
   evaluate:
-    tools: [get_task_result, get_task_logs]
-    goal: "Assess test results and agent behavior"
+    tools: [get_task_result, Read, Glob, Bash]
+    goal: "Assess the test by inspecting the ARTIFACTS the agent produced"
     actions:
-      - "get_task_result — read the task outcome and output"
+      - "get_task_result — read the task's terminal status and result.md summary"
       - text: >
-          get_task_logs — read execution logs. Look for:
-          - Did the agent follow the expected phases?
-          - Did it skip any steps or rationalize shortcuts?
-          - Were MCP tools used correctly?
-          - Did it produce the expected outputs?
-        why: "A 'done' status doesn't mean the agent worked well. Log analysis reveals behavior quality."
+          Grade against the PRODUCED ARTIFACTS, not execution-log content.
+          The honest, repo-local signals available to you are:
+          - The generated entity files. Glob/Read the files the test task was
+            supposed to create (plugins/<name>/plugin.yaml, tasks/*.yaml,
+            flows/*.yaml, roles/*.yaml, mcp/*.yaml) and check they exist and
+            contain the expected structure (correct phases, outputs, triggers,
+            session fields — not just "file exists").
+          - The flows-lint result. Run `flows lint --format=json` over the
+            produced entities; a clean (exit 0 / []) result is a hard,
+            objective pass signal — lint failures are a hard fail.
+          - result.md outputs. Verify the declared outputs are present and
+            non-empty in the result frontmatter.
+        why: "get_task_logs returns only run METRICS (tokens, cost, duration, status) — NOT the JSONL behavioral trace. So we cannot read the agent's step-by-step reasoning from this task. We grade what we CAN verify objectively: the artifacts the agent left behind and whether they lint clean."
+      - type: verify
+        check: "flows lint --format=json over the produced entities returns [] (exit 0)"
+        on_fail: "Record the lint findings as a test failure with the exact filepath:line diagnostics"
       - type: decide
-        high_confidence: "Task succeeded AND logs show correct behavior → test passes"
-        low_confidence: "Task failed OR logs show skipped steps → document issues and recommendations"
-    gate: "Evaluation complete with clear pass/fail and evidence"
+        high_confidence: "Task reached done AND all expected entity files exist with the expected structure AND flows lint is clean → test passes"
+        low_confidence: "Task failed, OR an expected entity file is missing/malformed, OR lint reports findings → document the specific artifact gap and recommendations"
+    gate: "Evaluation complete with clear pass/fail grounded in artifact + lint evidence"
     next: cleanup
 
   cleanup:
@@ -99,9 +112,36 @@ phases:
     gate: "Test worker stopped, results documented"
     next: null
 
+sections:
+  - name: "What this meta-test CAN and CANNOT check"
+    content: |
+      This test grades the configured agent **honestly**, within the limits of
+      the repo-local tools available to the configurator.
+
+      **CAN check (the shipped grading):**
+      - The agent reached a terminal status (`get_task_result`).
+      - The expected entity files exist and have the right structure
+        (Glob/Read the produced `plugins/.../*.yaml`, `roles/*.yaml`, etc.).
+      - The produced entities pass `flows lint` (objective, deterministic).
+      - The declared `outputs` are present in result.md.
+
+      **CANNOT check (and why):**
+      - The agent's step-by-step behavioral trace. `get_task_logs` returns only
+        run **metrics** (tokens, cost, duration, status) — not the JSONL trace.
+        So "did the agent skip a phase / rationalize a shortcut?" is NOT
+        answerable from this task. Do not pretend otherwise.
+
+      **Follow-up to enable behavioral grading:** a platform tool is needed —
+      history-service already stores an `execution-logs` report per run; exposing
+      it (or an equivalent orchestra-api trace tool) would let a future revision
+      of this task assert on actual phase transitions. Until then, artifact +
+      lint grading is the truthful contract.
+
 terminal_state:
   description: >
-    Test completed with documented results and recommendations.
-    Test worker stopped and cleaned up. Test task has terminal status.
+    Test completed with documented results and recommendations, graded on the
+    produced artifacts (entity files + flows-lint), within the honest limits of
+    repo-local tooling. Test worker stopped and cleaned up. Test task has
+    terminal status.
   invoked_by:
     - design-agent
