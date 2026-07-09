@@ -329,7 +329,7 @@ what it depends on.
 ```toml
 # flows.toml — repo manifest
 [package]
-name = "artme-dev/twinkle-flow-company"   # canonical id (owner/repo)
+name = "twinkle-hq/twinkle-flow-company"   # canonical id (owner/repo)
 version = "v0.1.0"                          # semver-ish git tag
 
 [exports]
@@ -337,7 +337,7 @@ plugins = "*"        # which plugins this repo exposes ("*" = all, or a list)
 roles = "*"          # which roles this repo exposes
 
 [dependencies]
-"artme-dev/twinkle-flow-core" = "v0.1.0"    # other repos this one needs
+"twinkle-hq/twinkle-flow-core" = "v0.1.0"    # other repos this one needs
 ```
 
 **MVS resolution.** A workspace declares an ordered list of attached libraries.

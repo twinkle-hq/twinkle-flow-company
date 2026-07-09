@@ -20,8 +20,8 @@ This repo (`twinkle-flow-company`) is the **company** tier — a per-workspace
 (`POST /api/config/workspaces/<ws>/libraries`), not globally force-attached. So
 `workers-configurator` reaches a worker only when an admin attaches this library
 to that workspace. Contrast the force-attach tiers:
-[`twinkle-flow-system`](https://github.com/artme-dev/twinkle-flow-system) (locked
-life-support) and [`twinkle-flow-core`](https://github.com/artme-dev/twinkle-flow-core)
+[`twinkle-flow-system`](https://github.com/twinkle-hq/twinkle-flow-system) (locked
+life-support) and [`twinkle-flow-core`](https://github.com/twinkle-hq/twinkle-flow-core)
 (toggleable baseline effectiveness).
 
 ## Session config

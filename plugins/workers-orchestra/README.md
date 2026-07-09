@@ -68,7 +68,7 @@ Attach it to a workspace and select the plugin (directly, or by selecting the
 ```bash
 curl -X POST http://localhost/api/config/workspaces/<ws>/libraries \
   -H 'Content-Type: application/json' \
-  -d '{"git_url": "https://github.com/artme-dev/twinkle-flow-company.git", "branch": "main"}'
+  -d '{"git_url": "https://github.com/twinkle-hq/twinkle-flow-company.git", "branch": "main"}'
 ```
 
 See the repo [README](../../README.md) for the company-tier model and the full

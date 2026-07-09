@@ -1,9 +1,9 @@
 # twinkle-flow-company
 
 The **company / project-running** tier of the Orchestra plugin catalog. Where
-[`twinkle-flow-system`](https://github.com/artme-dev/twinkle-flow-system) is the
+[`twinkle-flow-system`](https://github.com/twinkle-hq/twinkle-flow-system) is the
 locked life-support layer and
-[`twinkle-flow-core`](https://github.com/artme-dev/twinkle-flow-core) makes a
+[`twinkle-flow-core`](https://github.com/twinkle-hq/twinkle-flow-core) makes a
 single worker session *more effective*, this tier turns the platform into a
 **project-running tool**: it gives you executive PM agents that coordinate worker
 agents through Linear, a configurator agent that designs new agent setups, plus
@@ -13,7 +13,7 @@ lets agents talk to each other and to the orchestrator.
 ```toml
 # flows.toml
 [package]
-name = "artme-dev/twinkle-flow-company"
+name = "twinkle-hq/twinkle-flow-company"
 version = "v0.1.0"
 
 [exports]
@@ -21,7 +21,7 @@ plugins = "*"
 roles   = "*"
 
 [dependencies]
-"artme-dev/twinkle-flow-core" = "v0.1.0"
+"twinkle-hq/twinkle-flow-core" = "v0.1.0"
 ```
 
 ## Tier & attach model
@@ -62,7 +62,7 @@ of plugins applied to a worker.
 
 Composes: `project-management`, `workers-orchestra`, `workers-collaboration` (all
 from this repo) **plus** `core-memory` and `core-summary` from
-[`twinkle-flow-core`](https://github.com/artme-dev/twinkle-flow-core). The result
+[`twinkle-flow-core`](https://github.com/twinkle-hq/twinkle-flow-core). The result
 is a worker that can drive the project lifecycle in Linear, spin up and steer
 other workers, discover its team, and carry persistent memory + a structured
 execution summary across sessions.
@@ -73,7 +73,7 @@ execution summary across sessions.
 
 Composes: `workers-configurator` (from this repo) **plus** `core-memory` and
 `core-summary` from
-[`twinkle-flow-core`](https://github.com/artme-dev/twinkle-flow-core). The result
+[`twinkle-flow-core`](https://github.com/twinkle-hq/twinkle-flow-core). The result
 is a worker that can design and test new agent capabilities (plugins, roles,
 flows, tasks, MCP entities) while remembering past design decisions and emitting
 a summary.
@@ -82,7 +82,7 @@ a summary.
 
 Both roles reference `core-memory` / `core-summary`, which live in a **separate
 repo** (`twinkle-flow-core`). `flows.toml` declares
-`[dependencies] "artme-dev/twinkle-flow-core" = "v0.1.0"` so that the
+`[dependencies] "twinkle-hq/twinkle-flow-core" = "v0.1.0"` so that the
 flows-service's MVS resolver clones and pins `twinkle-flow-core` into the merged
 workspace view — the core plugins resolve correctly even though they are authored
 elsewhere. (The dependency declaration does **not** silence the repo-local
@@ -115,7 +115,7 @@ the repo to a workspace, then apply a role to a worker in that workspace.
    curl -X POST http://localhost/api/config/workspaces/<ws>/libraries \
      -H 'Content-Type: application/json' \
      -d '{
-       "git_url": "https://github.com/artme-dev/twinkle-flow-company.git",
+       "git_url": "https://github.com/twinkle-hq/twinkle-flow-company.git",
        "branch": "main",
        "github_token_id": "sec_..."
      }'

@@ -2,8 +2,8 @@
 
 This is the operating philosophy of `twinkle-flow-company`, the **company /
 project-running** tier of the Orchestra plugin catalog. Where
-[`twinkle-flow-system`](https://github.com/artme-dev/twinkle-flow-system) is
-life-support and [`twinkle-flow-core`](https://github.com/artme-dev/twinkle-flow-core)
+[`twinkle-flow-system`](https://github.com/twinkle-hq/twinkle-flow-system) is
+life-support and [`twinkle-flow-core`](https://github.com/twinkle-hq/twinkle-flow-core)
 is optional effectiveness, this tier is what turns the platform into a tool that
 *runs projects*: it ships the **executive** role (`plugins/project-management`)
 that drives the Linear project lifecycle, and the **configurator** role

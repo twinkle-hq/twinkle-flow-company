@@ -2,7 +2,7 @@
 #
 # The two roles (roles/executive.yaml, roles/configurator.yaml) reference the
 # core plugins core-memory / core-summary, which live in a SEPARATE repo
-# (artme-dev/twinkle-flow-core). `flows lint` is strictly repo-local, so it
+# (twinkle-hq/twinkle-flow-core). `flows lint` is strictly repo-local, so it
 # emits a benign "Referenced plugin not found" WARNING for these cross-repo
 # refs. At runtime they resolve fine via the MVS-merged workspace view (the
 # [dependencies] entry in flows.toml pins twinkle-flow-core for that merge).
