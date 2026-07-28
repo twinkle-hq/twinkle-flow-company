@@ -17,7 +17,7 @@ It is the configurator role's core plugin: `roles/configurator.yaml` composes
 
 This repo (`twinkle-flow-company`) is the **company** tier — a per-workspace
 **library**, attached opt-in to a specific workspace
-(`POST /api/config/workspaces/<ws>/libraries`), not globally force-attached. So
+(`POST /api/config/workspaces/<ws>/libraries`), not globally force-attached.
 `workers-configurator` reaches a worker only when an admin attaches this library
 to that workspace. Contrast the force-attach tiers:
 [`twinkle-flow-system`](https://github.com/twinkle-hq/twinkle-flow-system) (locked
@@ -85,7 +85,7 @@ capture-and-design ──▶ [review-brief] ──▶ draft-entities ──▶ [
 | `validate-and-review` | `validate-and-review` | `review_report`, `critical_count`, `total_findings` | **review-validation** — "Review the validation and multi-lens review results before sandbox testing." |
 | `test-and-iterate` | `test-and-iterate` | `test_results`, `benchmark_report`, `improvements_applied` | **review-tests** — "Review the sandbox test results and iterations before the configuration is considered production-ready." |
 
-`test-and-iterate` declares `needs: [review-validation, capture-and-design]` so
+`test-and-iterate` declares `needs: [review-validation, capture-and-design]`;
 the test stage receives the original Brief (its test cases) alongside the
 reviewed configuration. Job timeouts: 60m / 60m / 45m / 90m.
 

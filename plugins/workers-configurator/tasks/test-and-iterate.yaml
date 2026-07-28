@@ -24,20 +24,27 @@ hard_gates:
     rule: >
       Every `twinkle worker create` in this lane MUST carry an explicit
       `--git_repo` naming a sandbox repository that already exists. Omitted, the
-      command can create a REAL private GitHub repository.
-      `twinkle worker delete --help` prints that a delete leaves the worker
-      directory and its git repo on disk alone. This lane creates a worker per
-      test case per arm — every one of those names needs the flag.
+      command can create a REAL private GitHub repository, and no command in
+      this lane removes it. This gate is the protection — do not go looking for
+      a `--help` line that softens it. This lane creates a worker per test case
+      per arm; every one of those names needs the flag.
   - before: run-tests
     rule: >
       Every `twinkle worker create` in this lane MUST also carry a
-      `--git_branch` unique to that test case AND that arm — e.g.
-      `iter-<N>-<case-id>-with-config` and `iter-<N>-<case-id>-baseline`. Run
-      `twinkle worker create --help` and confirm the flag is on the printed
-      list before you rely on it. If `--git_branch` is not on the printed list,
-      give each arm its own `--git_repo` instead; if neither is available, do
-      not run the lane — record that the two arms cannot be isolated here and
-      stop.
+      `--git_branch` naming a branch that ALREADY EXISTS on the repository
+      `--git_repo` names — one branch per arm, never one branch shared by the
+      with-config and the baseline arm of a test case. Create both branches on
+      that sandbox remote first and confirm each one with
+      `git ls-remote --heads <repo URL> <branch>`: measured on a local
+      repository, a branch that is there prints one line
+      (`b3c36409… refs/heads/main`), and a branch that is not there prints
+      NOTHING and still exits 0 — read the printed line, never the exit code.
+      A name the remote does not have makes `git clone --branch <name>` fail —
+      measured: `fatal: Remote branch iter-1-login-baseline not found in
+      upstream origin`, exit status 128. If you cannot create branches on that
+      remote, give each arm its own `--git_repo`, each naming a sandbox
+      repository that already exists. If neither is available, do not run the
+      lane — record that the two arms cannot be isolated here, and stop.
   - before: grade
     rule: >
       All test runs (both with-config and baseline) must have completed before
@@ -73,6 +80,10 @@ anti_rationalization:
       reality: "It is not optional here — the hard gate on run-tests mandates it, and with no `--git_repo` the command can create a real private GitHub repository. This lane invents a run-name per test case per arm; name an existing sandbox repo on every one of them."
     - thought: "Both arms can share the sandbox repo's default branch — I'll tell the artifacts apart by their filenames"
       reality: "The hard gate on run-tests mandates a distinct `--git_branch` per arm per case. Two arms whose artifacts share one branch are not a with/without comparison, and a benchmark computed over them compares one arm against itself. Give each arm its own branch and record which branch each artifact came from."
+    - thought: "I'll invent the two branch names on the create line — `iter-2-login-with-config` and `iter-2-login-baseline` will be made for me"
+      reality: "Nothing in this lane creates a branch. `git clone --branch <name>` against a remote that does not have that name was measured as `fatal: Remote branch iter-1-login-baseline not found in upstream origin`, exit status 128. Create both branches on the sandbox remote first, confirm each one with `git ls-remote --heads <repo URL> <branch>` — an existing branch prints one line, a missing one prints nothing and still exits 0 — and only then pass the names to `twinkle worker create`."
+    - thought: "I committed and pushed the entity edits, so the test workers will pick them up"
+      reality: "Run `twinkle library sync <ws> <namespace>` after the push and before the first `worker create` of every iteration; `<namespace>` comes from `twinkle library list <ws>`. Do not report a pass or a failure as a verdict on a commit you never synced."
     - thought: "A `twinkle worker create` came back 403 — the test environment is flaky, retry"
       reality: "A 403 with a JSON body is a scope answer, not a transient one. `worker list`, `worker create`, `worker delete`, `worker status` and `tracker worker-config` print `scope: admin` under `twinkle <group> <action> --help`. Retrying cannot change it — see the 'Scope' section, report it, and stop."
     - thought: "`twinkle worker create` could not connect — the deployment is down, wait and retry"
@@ -99,9 +110,21 @@ phases:
     next: run-tests
 
   run-tests:
-    tools: ["twinkle worker list", "twinkle worker create", "twinkle worker start", "twinkle task create", "twinkle tracker worker-config"]
+    tools: ["twinkle library list", "twinkle library sync", "twinkle worker list", "twinkle worker create", "twinkle worker start", "twinkle task create", "twinkle tracker worker-config"]
     goal: "Execute test cases with configuration and baseline in parallel"
     actions:
+      - text: >
+          Before the first `worker create` of this iteration: commit and push
+          the entity edits under test, then run
+          `twinkle library sync <ws> <namespace>`. The `<namespace>` comes from
+          `twinkle library list <ws>`. Repeat both on every later iteration,
+          after every fix, before the arms are re-created.
+        why: >
+          `twinkle library sync <ws> <namespace>` prints `scope: worker` and
+          `twinkle library list <ws>` prints `scope: admin` under
+          `twinkle <group> <action> --help`; both take positionals only, with
+          no `--workspace` flag. Do not report a pass or a failure as a verdict
+          on a commit you never synced.
       - text: >
           For each test case, run TWO tests in parallel:
           1. With-config: worker with the new configuration (role/plugins)
@@ -133,14 +156,17 @@ phases:
           `worker start` — neither takes a `--workspace` flag, and passing one
           exits 2 with `Unknown option '--workspace'`. `--git_repo` and
           `--git_branch` are both mandatory (hard gates above): the two arms of
-          one test case must not share a branch. Spell the branch so the case
-          and the arm are both in it —
-          `iter-2-login-flow-with-config` / `iter-2-login-flow-baseline`. The
-          baseline arm is the same three commands, on its own branch, with the
-          configuration's plugins omitted (or the previous version's).
+          one test case must not share a branch, and every branch name you pass
+          must already be on that remote. Spell the branch with the case and
+          the arm both in it — `iter-2-login-flow-with-config` /
+          `iter-2-login-flow-baseline` — create both on the sandbox remote, and
+          confirm each with `git ls-remote --heads <repo URL> <branch>` before
+          the create line. The baseline arm is the same three commands, on its
+          own branch, with the configuration's plugins omitted (or the previous
+          version's).
       - "Set reasonable timeouts (10-15 minutes per test)"
       - "Save results to organized workspace: iteration-{N}/eval-{ID}/{with_config|baseline}/"
-    gate: "All test runs launched (both with-config and baseline for each test case)"
+    gate: "Library synced against the pushed commit under test; both arms' branches confirmed present on the sandbox remote; all test runs launched (with-config and baseline for each test case)"
     next: draft-assertions
 
   draft-assertions:
@@ -198,9 +224,12 @@ phases:
       - "Save results, produced entities, lint output, and timing data to workspace directories"
       - text: >
           Clean up every test worker: `twinkle worker stop <ws> <run-name>`,
-          then `twinkle worker delete <ws> <run-name>` for each worker THIS run
+          then poll `twinkle worker status <ws> <run-name> --json` until its
+          `state` field is no longer `running`, and only then
+          `twinkle worker delete <ws> <run-name>` — for each worker THIS run
           created. A run-name that was already taken when you created it was
           reconfigured rather than created — stop that one and leave it.
+          Never issue the delete straight after the stop.
         why: >
           Delete is destructive beyond this lane's own sandbox. Run
           `twinkle worker delete --help` and read it before you use the
@@ -271,8 +300,15 @@ phases:
         why: "Change the minimum needed to address the failure. Over-fixing introduces new risks."
       - text: "Re-validate all modified entities (flows lint, flows reliability <task>)"
         why: "Fixes can break validation. Catch issues before re-testing."
-      - text: "Re-run all test cases into a new iteration-{N+1}/ directory"
-        why: "Every fix needs re-testing. The improvement cycle continues until metrics are satisfactory."
+      - text: >
+          Commit and push the fixes, run `twinkle library sync <ws> <namespace>`,
+          then re-run all test cases into a new iteration-{N+1}/ directory on
+          fresh per-arm branches.
+        why: >
+          Every fix needs re-testing. Do not re-run an iteration without the
+          sync in front of it, and do not reuse the previous iteration's
+          branches — create the new ones on the sandbox remote and confirm each
+          with `git ls-remote --heads <repo URL> <branch>`.
       - type: decide
         high_confidence: "All assertions pass, metrics improved over baseline → ready for human review"
         low_confidence: "Still failing assertions or baseline outperforms → continue iteration"
@@ -291,7 +327,7 @@ phases:
     next: null
 
 sections:
-  - name: "Scope, and the repo and branch this lane must name"
+  - name: "Scope, and the repo, branch and sync this lane must name"
     content: |
       **Scope**, by the `scope:` line each command's `--help` prints:
 
@@ -302,9 +338,11 @@ sections:
       | `twinkle worker list` | admin |
       | `twinkle worker status` | admin (its help prints `operation: worker.list`) |
       | `twinkle tracker worker-config` | admin |
+      | `twinkle library list` | admin |
       | `twinkle worker start`, `twinkle worker stop` | worker |
       | `twinkle task create`, `twinkle task get` | worker |
       | `twinkle run list` | worker |
+      | `twinkle library sync` | worker |
 
       `twinkle <group> <action> --help` prints the operation's `scope:` line —
       that is the check, not this table.
@@ -314,9 +352,9 @@ sections:
 
       1. **It answers.** Every command above is available and the lane runs.
       2. **`403` with a JSON body.** That is scope: no retry and no flag
-         changes it. The lane opens with `twinkle worker list` and
-         `twinkle worker create`, both admin-scoped — in this shape, no test
-         runs.
+         changes it. The lane opens with `twinkle library list`,
+         `twinkle worker list` and `twinkle worker create`, all three
+         admin-scoped — in this shape, no test runs.
       3. **A connection error, or any message naming `http://localhost`.** The
          twinkle CLI is not pointed at a deployment on this machine. A read
          warns on stderr first — measured verbatim: `twinkle: no --url,
@@ -336,16 +374,40 @@ sections:
       the specific mistake this section exists to prevent.
 
       **The repo.** `twinkle worker create` with no `--git_repo` can **create a
-      real private GitHub repository**. `twinkle worker delete --help` prints
-      that a delete leaves the worker directory and its git repo on disk alone.
+      real private GitHub repository**, and no command in this lane removes it.
       Always pass `--git_repo` naming a sandbox repository that already exists
       and is safe to reuse — on every one of the names this lane invents, one
-      per test case per arm.
+      per test case per arm. The hard gate on `run-tests` is the protection
+      here; do not go looking for a `--help` line that softens it.
 
       **The branch.** Every one of those creates also carries a `--git_branch`
-      unique to its test case AND its arm. Two arms whose artifacts share one
-      branch are not a with/without comparison, whatever the benchmark says.
-      Confirm the flag on `twinkle worker create --help` before you rely on it.
+      unique to its test case AND its arm, and **every one of those branch
+      names must already exist on that remote** — this lane creates no
+      branches. Create them yourself on the sandbox remote before the first
+      `worker create`, and confirm each one:
+
+      ```
+      git ls-remote --heads <repo URL> iter-2-login-flow-baseline
+      ```
+
+      Measured on a local repository: a branch that is there prints one line
+      (`b3c36409… refs/heads/main`); a branch that is not there prints nothing
+      and still exits 0 — read the printed line, never the exit code. A name
+      the remote does not have makes `git clone --branch <name>` fail —
+      measured: `fatal: Remote branch iter-1-login-baseline not found in
+      upstream origin`, exit status 128.
+
+      Two arms whose artifacts share one branch are not a with/without
+      comparison, whatever the benchmark says. Where you cannot create branches
+      on that remote, give each arm its own `--git_repo`, each naming a sandbox
+      repository that already exists. Where neither is available: do not run
+      the lane, record that the two arms cannot be isolated here, and stop.
+
+      **The library sync.** Commit and push the entity edits under test, then
+      run `twinkle library sync <ws> <namespace>` — before the first
+      `worker create` of every iteration, and again after every fix. The
+      `<namespace>` comes from `twinkle library list <ws>`. Do not report a
+      pass or a failure as a verdict on a commit you never synced.
 
   - name: "Writing Good Assertions"
     content: |

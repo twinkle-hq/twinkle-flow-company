@@ -369,7 +369,7 @@ as benign, and suppress it in `.flows-lint.yaml` rather than editing the ref.
    The official force-attach catalog is seeded from
    `config-service/preset-repos.js` (`SHIPPED_CATALOG`).
 
-So a worker's effective entity set = force-attached system + core plugins
+A worker's effective entity set = force-attached system + core plugins
 (global) + the plugins/roles MVS-resolved from its workspace's attached
 libraries. The runner reads the worker's flat `plugins` list (the `workers.role`
 column was dropped — applying a role just copies the role's plugins into the
@@ -518,8 +518,12 @@ Three things to know before using the admin seven:
    is about scope.
 2. **Always pass `--git_repo` to `twinkle worker create`, naming a repository
    that already exists.** With no `--git_repo` the command can create a real
-   private GitHub repository. `twinkle worker delete --help` prints that a
-   delete leaves the worker directory and its git repo on disk alone.
+   private GitHub repository, and no twinkle command removes it. That rule is
+   the protection — do not go looking for a `--help` line that softens it. When
+   you also pass `--git_branch`, the branch must ALREADY EXIST on that remote:
+   confirm it with `git ls-remote --heads <repo URL> <branch>`, which prints
+   one line for a branch that is there and nothing at all (still exit 0) for
+   one that is not.
 3. **`twinkle worker delete` reaches outside the platform's own config.** Run
    `twinkle worker delete --help` and read it before you use the command: it
    prints that the call removes the worker's configuration in config-service

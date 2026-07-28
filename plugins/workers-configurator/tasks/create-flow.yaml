@@ -180,7 +180,7 @@ sections:
 
       **How context flows between jobs in a multi-job flow:**
       - Jobs do NOT pass parameters to each other. Each job gets its own params from dispatch or trigger_context.
-      - Runtime context between jobs flows through **git artifacts**: the worker's git repo is shared, so files written by job A (result.md, artifacts in task/reports/) are visible to job B.
+      - Runtime context between jobs flows through **git artifacts**: the worker's git repo is shared. Files written by job A (result.md, artifacts in task/reports/) are visible to job B.
       - The runner collects artifacts from dependency jobs and injects them into the next job's context automatically.
       - Use `needs: [job-a]` to ensure job B waits for job A to complete (creates a Linear blocking relation).
 

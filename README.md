@@ -88,11 +88,10 @@ a summary.
 
 Both roles reference `core-memory` / `core-summary`, which live in a **separate
 repo** (`twinkle-flow-core`). `flows.toml` declares
-`[dependencies] "twinkle-hq/twinkle-flow-core" = "v0.1.0"` so that the
-flows-service's MVS resolver clones and pins `twinkle-flow-core` into the merged
-workspace view — the core plugins resolve correctly even though they are authored
-elsewhere. (The dependency declaration does **not** silence the repo-local
-`flows lint` cross-repo warnings — `.flows-lint.yaml` handles those.)
+`[dependencies] "twinkle-hq/twinkle-flow-core" = "v0.1.0"`. Keep that
+declaration in step with the version the roles are written against. (It does
+**not** silence the repo-local `flows lint` cross-repo warnings —
+`.flows-lint.yaml` handles those.)
 
 ## MCP connectors
 
@@ -110,8 +109,8 @@ writes the resulting token URL into the worker's `.mcp.json`.
 
 ## How to attach
 
-The company tier is a per-workspace library, so attaching is two steps: attach
-the repo to a workspace, then apply a role to a worker in that workspace.
+The company tier is a per-workspace library. Attaching is two steps: attach the
+repo to a workspace, then apply a role to a worker in that workspace.
 
 1. **Attach the library** to the target workspace (or pick it from the
    attach-library preset dropdown — it's the first entry):

@@ -14,9 +14,17 @@ hard_gates:
     rule: >
       `twinkle worker create` MUST carry an explicit `--git_repo` naming a
       sandbox repository that already exists. Omitted, the command can create a
-      REAL private GitHub repository. `twinkle worker delete --help` prints that
-      a delete leaves the worker directory and its git repo on disk alone. Do
-      not run the command without that flag.
+      REAL private GitHub repository, and no command in this lane removes it.
+      Do not run the command without that flag. This gate is the protection —
+      do not go looking for a `--help` line that softens it.
+  - before: create-test-worker
+    rule: >
+      The entity edits under test MUST be committed, pushed, and picked up by
+      the platform before the test worker exists. Run
+      `twinkle library sync <ws> <namespace>` after the push and before
+      `twinkle worker create`; `<namespace>` comes from
+      `twinkle library list <ws>`. Do not report a pass or a failure as a
+      verdict on a commit you never synced.
   - before: evaluate
     rule: "Task must have reached a terminal state (done, blocked, or failed) before evaluating. Do not evaluate an in-progress task."
   - before: cleanup
@@ -35,6 +43,10 @@ anti_rationalization:
       reality: "`twinkle run list --task_id <id> --limit 1` returns only the run row — measured on a live stand, its fields are status, started_at, completed_at, duration_seconds, input/output/cache tokens, cost_usd, summary, error, commit_before/after, flow_run_id, flow_name, machine. There is no JSONL behavioral trace in it. Do not read step-by-step behavior out of this command. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read is a follow-up, not something this task can do."
     - thought: "Cleanup isn't important, I'll leave the test worker running"
       reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
+    - thought: "I committed and pushed the entity edits, so the test worker will pick them up"
+      reality: "Run `twinkle library sync <ws> <namespace>` after the push and before `twinkle worker create` — the hard gate on create-test-worker mandates it. `<namespace>` comes from `twinkle library list <ws>`. Do not report a pass or a failure as a verdict on a commit you never synced."
+    - thought: "`twinkle worker stop` returned, the worker is down — I'll delete it now"
+      reality: "The stop call returning is not the worker being stopped. Poll `twinkle worker status <ws> test-<name> --json` until its `state` field is no longer `running`, and only then delete. Measured on a live stand, that read answers `{\"name\":\"configurator\",\"workspace\":\"sandbox\",\"state\":\"stopped\",\"started_at\":null,\"current_task\":null,\"queue_size\":0,...}` — `state` is the field."
     - thought: "`--git_repo` is optional — I'll let the platform pick one"
       reality: "It is not optional here — the hard gate on create-test-worker mandates it, and with no `--git_repo` the command can create a real private GitHub repository. Name an existing sandbox repo on every create."
     - thought: "`twinkle worker create` returned 403 — I'll retry, or find another flag"
@@ -56,11 +68,21 @@ phases:
     next: create-test-worker
 
   create-test-worker:
-    tools: ["twinkle worker list", "twinkle worker create", "twinkle worker status"]
+    tools: ["twinkle library list", "twinkle library sync", "twinkle worker list", "twinkle worker create", "twinkle worker status"]
     goal: "Create a temporary test worker with the target configuration"
     actions:
       - text: >
-          First confirm the name is FREE — `twinkle worker list --workspace <ws>`
+          First of all, commit and push the entity edits under test, then run
+          `twinkle library sync <ws> <namespace>`. The `<namespace>` comes from
+          `twinkle library list <ws>`.
+        why: >
+          `twinkle library sync <ws> <namespace>` prints `scope: worker` and
+          `twinkle library list <ws>` prints `scope: admin` under
+          `twinkle <group> <action> --help`; both take positionals only, with
+          no `--workspace` flag. Do not report a pass or a failure as a verdict
+          on a commit you never synced.
+      - text: >
+          Next, confirm the name is FREE — `twinkle worker list --workspace <ws>`
           and check `test-<name>` is not already there. If it is, pick another
           name.
         why: >
@@ -93,7 +115,7 @@ phases:
           that; do not install one. Only after ruling out all three is the
           error about the configuration under test and worth fixing and
           retrying.
-    gate: "Test worker created and visible in config"
+    gate: "Library synced against the pushed commit under test; test worker created and visible in config"
     next: create-test-task
 
   create-test-task:
@@ -160,10 +182,20 @@ phases:
     next: cleanup
 
   cleanup:
-    tools: ["twinkle worker stop", "twinkle worker delete"]
+    tools: ["twinkle worker stop", "twinkle worker status", "twinkle worker delete"]
     goal: "Remove test resources"
     actions:
-      - "`twinkle worker stop <ws> test-<name>` — stop the test worker"
+      - text: >
+          `twinkle worker stop <ws> test-<name>` — stop the test worker. Then
+          poll `twinkle worker status <ws> test-<name> --json` until its
+          `state` field is no longer `running`. Never issue the delete straight
+          after the stop.
+        why: >
+          The stop call returning is not the worker being stopped. Measured on
+          a live stand, `worker status --json` answers
+          `{"name":"configurator","workspace":"sandbox","state":"stopped",
+          "started_at":null,"current_task":null,"queue_size":0, …}` — `state`
+          is the field to read.
       - text: >
           `twinkle worker delete <ws> test-<name>` — ONLY if the create phase
           established the name was free and created the worker itself. If you
@@ -184,7 +216,7 @@ phases:
       - type: write_result
         status: done
         summary: "Test {result}: {summary_of_findings}. Recommendations: {recommendations}"
-    gate: "Test worker stopped, results documented"
+    gate: "Test worker stopped — confirmed by a `worker status` read, not by the stop call returning — and results documented"
     next: null
 
 sections:
@@ -199,9 +231,11 @@ sections:
       | `twinkle worker list` | admin |
       | `twinkle worker status` | admin (its help prints `operation: worker.list`) |
       | `twinkle tracker worker-config` | admin |
+      | `twinkle library list` | admin |
       | `twinkle worker start`, `twinkle worker stop` | worker |
       | `twinkle task create`, `twinkle task get` | worker |
       | `twinkle run list` | worker |
+      | `twinkle library sync` | worker |
 
       Do not trust that table — `twinkle <group> <action> --help` prints the
       operation's `scope:` line, and that is the check.
