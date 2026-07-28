@@ -3,12 +3,17 @@
 `tier: company` · per-workspace **library** plugin (attached to a workspace via
 the company library — **not** force-attached).
 
-A thin **connector** plugin: `plugin.yaml` only. It ships no capabilities, no
-hooks, and no flows — one skill. Its single job is to teach the agent the
-worker-lifecycle commands of the **`twinkle` CLI**:
+A thin **connector** plugin: a `plugin.yaml` and the one skill it points at. It
+ships no capabilities, no hooks, and no flows. Its single job is to teach the
+agent the worker-lifecycle commands of the **`twinkle` CLI**:
 
-> *Workers lifecycle — create, start, stop workers, dispatch flows, list system
-> state.*
+> *Workers lifecycle — list workers, check status, start and stop them, list and
+> dispatch flows, through the twinkle CLI.*
+
+It teaches no `worker create`: creating a worker is `scope: 'admin'` and, with
+no `--git_repo` and a GitHub token the BFF can resolve, creates a real private
+GitHub repository. That is a configurator operation, not an executive one — see
+[`workers-configurator`](../workers-configurator/README.md).
 
 ## What it wires
 
@@ -22,8 +27,9 @@ session:
 That one line compiles
 [`skills/worker-lifecycle/SKILL.md`](skills/worker-lifecycle/SKILL.md) into the
 session's `SKILL.md`, teaching the agent to reach the platform through the
-`twinkle` CLI (already on `PATH`, already authenticated as the worker — no
-`twinkle auth login`) rather than through an MCP tool.
+`twinkle` CLI (already on `PATH`, already pointed at the deployment by the
+runner's `TWINKLE_URL` — no `twinkle auth login`) rather than through an MCP
+tool.
 
 ### The `worker-lifecycle` skill
 
@@ -40,8 +46,19 @@ twinkle flow dispatch <name> --workspace <ws> --worker <w>
 
 `worker start`/`worker stop` are fire-and-forget (a `202` means the command
 reached the bus, not that the worker has actually changed state — confirm with
-`worker status` afterward). There is no server-side workspace binding, so every
-invocation needs an explicit `--workspace`.
+`worker status` afterward).
+
+Two details the skill spells out and this list cannot:
+
+- **The workspace is spelled two ways.** It is a positional on `worker
+  start`/`worker stop`/`worker status` and a `--workspace` flag on `worker
+  list`/`flow list`/`flow dispatch`. Adding that flag to `twinkle worker start`
+  exits 2. There is no server-side workspace binding, so the list commands
+  answer fleet-wide without the flag.
+- **Three of the six are `scope: 'admin'`** — `worker list`, `worker status`
+  (the same operation) and `flow dispatch`. On a deployment where the runner
+  points the CLI at the worker vhost, those answer `403` at the edge; on a
+  single-host deployment, where it points at the default vhost, all six work.
 
 ## Which role includes it
 

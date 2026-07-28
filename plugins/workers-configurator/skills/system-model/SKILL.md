@@ -453,9 +453,40 @@ You author entities by editing YAML files in the repo and validating them with t
 
 **Preview** — `flows preview-skill <task>`: render the SKILL.md the runner will compile from a task, so you can read what the agent will actually see.
 
-**twinkle** (CLI — worker/task operations):
-- `twinkle worker create`, `twinkle worker start`, `twinkle worker stop`, `twinkle worker status` — worker lifecycle
-- `twinkle task create`, `twinkle task get`, `twinkle run list` — task operations
+**twinkle** (CLI — worker/task operations). Already on `PATH`, and the runner
+has already pointed it at this deployment: it sets `TWINKLE_URL` in the
+container, and on a remote machine a `scope: 'worker'` token with it. Do not run
+`twinkle auth login`.
+
+- `twinkle worker start <ws> <w>`, `twinkle worker stop <ws> <w>` — `scope: 'worker'`
+- `twinkle task create`, `twinkle task get <id>`, `twinkle run list` — `scope: 'worker'`
+- `twinkle worker create <ws> <w>`, `twinkle worker delete <ws> <w>`,
+  `twinkle worker status <ws> <w>`, `twinkle tracker worker-config <ws> <w>` —
+  **`scope: 'admin'`**
+
+Two things to know before using the admin four:
+
+1. **They can be refused.** Where the runner reaches the platform over the
+   network it points this CLI at the worker vhost with a `scope: 'worker'`
+   token, and that vhost admits only `scope: 'worker'` operations — the others
+   answer `403` at the edge. On a single-host deployment it points at the
+   default vhost, which has no auth subrequest, and all of them work. A `403`
+   is this session's scope, not a broken command: report it, do not retry.
+2. **`twinkle worker create` with no `--git_repo` creates a real private GitHub
+   repository.** Where the BFF can resolve a GitHub token (the worker's
+   `--github_token_id`, else the workspace's), it POSTs
+   `https://api.github.com/user/repos` for a private, auto-init repo named
+   `twinkle-<ws>-worker-<worker>` and stores its clone URL. Nothing — not
+   `twinkle worker delete`, not any other command here — ever deletes one.
+   (With no resolvable token it does not create: it refuses the whole call with
+   `400 NO_GIT_REPO`.) Always pass `--git_repo` naming a repository that
+   already exists.
+
+`twinkle <group> <action> --help` prints the command's signature, its flag list
+and its `scope:` line. The flag list is derived from the serving handler and
+reconciled against it both ways; the `scope:` line and the flag TYPES are
+declared in the registry by a human who read that handler, and the help says so
+in its own words. Run it; the lists above are a summary of it.
 
 ## External Skills Marketplace
 

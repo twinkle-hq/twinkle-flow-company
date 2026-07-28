@@ -1,5 +1,5 @@
 name: workers-orchestra
-description: "Workers lifecycle — create, start, stop workers, dispatch flows, list system state"
+description: "Workers lifecycle — list workers, check status, start and stop them, list and dispatch flows, through the twinkle CLI"
 
 session:
   skills:

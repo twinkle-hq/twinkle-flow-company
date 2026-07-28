@@ -10,6 +10,14 @@ outputs:
   - recommendations
 
 hard_gates:
+  - before: create-test-worker
+    rule: >
+      `twinkle worker create` MUST carry an explicit `--git_repo` naming a
+      sandbox repository that already exists. Omitted, and wherever the BFF can
+      resolve a GitHub token, the handler auto-creates a REAL private GitHub
+      repository named `twinkle-<ws>-worker-<name>`, and nothing in this lane
+      (or in `twinkle worker delete`) ever deletes it. Do not run the command
+      without that flag.
   - before: evaluate
     rule: "Task must have reached a terminal state (done, blocked, or failed) before evaluating. Do not evaluate an in-progress task."
   - before: cleanup
@@ -28,6 +36,10 @@ anti_rationalization:
       reality: "`twinkle run list --task_id <id> --limit 1` returns only the run row (tokens, cost, duration, status) — not the JSONL behavioral trace. You CANNOT read step-by-step behavior from this command. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read needs a platform tool (history-service execution-logs report) — that is a follow-up, not something this task can do."
     - thought: "Cleanup isn't important, I'll leave the test worker running"
       reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
+    - thought: "`--git_repo` is optional — I'll let the platform pick one"
+      reality: "It is not optional here. With no `--git_repo` the BFF resolves a GitHub token and, when it gets one, CREATES a real private repository named `twinkle-<ws>-worker-<name>`. `twinkle worker delete` removes the config row and the Linear label and does NOT remove that repository, so every sandbox run under a fresh test name leaks one forever. (With no resolvable token it creates nothing and refuses the call `400 NO_GIT_REPO` — a failed create either way.) Name an existing sandbox repo."
+    - thought: "`twinkle worker create` returned 403 — I'll retry, or find another flag"
+      reality: "403 from the worker vhost is a scope answer, not a transient one. `worker create`, `worker delete` and `worker status` are `scope: 'admin'` operations and the worker vhost admits only `scope: 'worker'` ones. No retry and no flag changes it — see the 'Scope' section. Report it and stop; the configuration under test is not what failed."
 
 phases:
   prepare:
@@ -41,24 +53,49 @@ phases:
     next: create-test-worker
 
   create-test-worker:
-    tools: ["twinkle worker create"]
+    tools: ["twinkle worker create", "twinkle worker status"]
     goal: "Create a temporary test worker with the target configuration"
     actions:
-      - "create_worker with the target role/plugins, a test-prefixed name, and a test label"
+      - text: >
+          `twinkle worker create <ws> test-<name> --git_repo <existing sandbox repo URL>
+          --plugins <p> [--plugins <p> ...]` — a test-prefixed worker name and the
+          role's plugins, one `--plugins` per entry.
+        why: >
+          `<ws>` and the worker name are POSITIONALS on this command, not flags —
+          there is no `--workspace` on it. `--git_repo` is mandatory: without it the
+          BFF auto-creates a real private GitHub repository (hard gate above).
+          The Linear label is created server-side by the worker bootstrap; pass
+          `--label_id` only to reuse an existing one.
       - type: verify
-        check: "get_worker_status — worker exists in config"
-        on_fail: "Check error message, fix configuration, retry"
+        check: "`twinkle worker status <ws> test-<name>` — the worker exists in config"
+        on_fail: >
+          Read the error. `403` means the vhost refused the SCOPE (see the Scope
+          section) — stop and report, do not retry. Anything else: fix the
+          configuration and retry.
     gate: "Test worker created and visible in config"
     next: create-test-task
 
   create-test-task:
-    tools: ["twinkle task create"]
+    tools: ["twinkle task create", "twinkle tracker worker-config"]
     goal: "Create a task for the test worker to execute"
     actions:
-      - text: "create_task with a clear test description that exercises the agent's main capability"
+      - text: >
+          `twinkle task create --workspace <ws> --title <t> --description <d>
+          --labelIds <worker label id>` — a clear test description that
+          exercises the agent's main capability.
         why: "The test task must be specific enough to evaluate but simple enough to succeed in one attempt."
-      - "Set task label to match the test worker's label"
-      - "Set status to Ready"
+      - text: >
+          The label is what addresses the task to the test worker: read the id
+          with `twinkle tracker worker-config <ws> test-<name>` (field
+          `label_id`) and pass it as `--labelIds`. Repeat the flag for more
+          than one label.
+        why: "Nothing addresses a task to a worker except the Linear label; an unlabelled task is picked up by nobody."
+      - text: >
+          Do not pass `--stateOverride`. task-tracker creates in `ready` by
+          default (`services/stores/task-tracker/src/adapters/linear.js`:
+          `const stateName = stateOverride || 'ready'`), so spelling it is only
+          a way to get it wrong.
+        why: "The state the task needs is already the default; the flag exists to deviate from it."
     gate: "Test task created in Ready status with correct label"
     next: start-and-wait
 
@@ -66,9 +103,13 @@ phases:
     tools: ["twinkle worker start", "twinkle worker status"]
     goal: "Start the test worker and wait for task completion"
     actions:
-      - "start_worker — begin the test worker"
-      - text: "Poll get_worker_status periodically until the worker picks up and completes the task"
-        why: "Workers are asynchronous. Must wait for the full lifecycle to complete."
+      - text: "`twinkle worker start <ws> test-<name>` — begin the test worker."
+        why: >
+          Positionals again, no `--workspace` flag. The 202 means the command
+          reached the bus, not that the worker is running — the poll below is
+          what confirms it.
+      - text: "Poll `twinkle worker status <ws> test-<name> --json` periodically until the worker picks up and completes the task"
+        why: "Workers are asynchronous. Must wait for the full lifecycle to complete. `machine_online` is heartbeat-derived (15s beat, stale past 45s), so a single read can lag reality by that much."
       - "Set a reasonable timeout (10-15 minutes for simple tests)"
     gate: "Task reached terminal state (done or blocked)"
     next: evaluate
@@ -77,7 +118,7 @@ phases:
     tools: ["twinkle task get", "twinkle run list", Read, Glob, Bash]
     goal: "Assess the test by inspecting the ARTIFACTS the agent produced"
     actions:
-      - "get_task_result — read the task's terminal status and result.md summary"
+      - "`twinkle task get <task-id>` — read the task's terminal status and result.md summary"
       - text: >
           Grade against the PRODUCED ARTIFACTS, not execution-log content.
           The honest, repo-local signals available to you are:
@@ -102,10 +143,19 @@ phases:
     next: cleanup
 
   cleanup:
-    tools: ["twinkle worker stop"]
+    tools: ["twinkle worker stop", "twinkle worker delete"]
     goal: "Remove test resources"
     actions:
-      - "stop_worker — stop the test worker"
+      - "`twinkle worker stop <ws> test-<name>` — stop the test worker"
+      - text: >
+          `twinkle worker delete <ws> test-<name>` — remove the worker row and
+          its Linear label, so a stopped-but-present test worker does not
+          accumulate in config.
+        why: >
+          `stop` alone deletes nothing. `delete` removes the config row and the
+          label — and NOT the git repository, which is exactly why the create
+          phase must name an existing sandbox repo rather than let one be
+          auto-created.
       - type: write_result
         status: done
         summary: "Test {result}: {summary_of_findings}. Recommendations: {recommendations}"
@@ -113,13 +163,48 @@ phases:
     next: null
 
 sections:
+  - name: "Scope — half of this lane needs an admin token"
+    content: |
+      The `twinkle` CLI in a worker session is authenticated **as this worker**.
+      Where the runner reaches the platform over the network it points the CLI
+      at the WORKER vhost with a `scope: 'worker'` token, and that vhost's
+      allow-list admits only the operations the registry declares
+      `scope: 'worker'`. Every other operation is refused with **403 at the
+      edge**, before it reaches any service.
+
+      This lane's commands, by scope:
+
+      | command | scope | on a remote machine |
+      |---|---|---|
+      | `twinkle worker create` | admin | 403 |
+      | `twinkle worker delete` | admin | 403 |
+      | `twinkle worker status` | admin (it is an alias of `worker.list`) | 403 |
+      | `twinkle tracker worker-config` | admin | 403 |
+      | `twinkle worker start`, `twinkle worker stop` | worker | works |
+      | `twinkle task create`, `twinkle task get` | worker | works |
+      | `twinkle run list` | worker | works |
+
+      Do not trust that table — `twinkle <group> <action> --help` prints the
+      operation's `scope:` line, and that is the check. (`worker status` prints
+      `scope: admin` under `operation: worker.list`, which is the same fact
+      spelled through the alias.)
+
+      **Consequence.** This lane runs end-to-end only where the CLI is pointed
+      at a vhost that accepts an admin-scoped token: a single-host deployment
+      (the runner sets `TWINKLE_URL=http://gateway`, the default vhost, which
+      has no auth subrequest), or a session explicitly given an admin profile.
+      On a remote machine `twinkle worker create` — the lane's first action —
+      answers 403 and the lane cannot start. That is a deployment fact about
+      where this session is running, not a defect in the configuration under
+      test: record it in the result and stop.
+
   - name: "What this meta-test CAN and CANNOT check"
     content: |
       This test grades the configured agent **honestly**, within the limits of
       the repo-local tools available to the configurator.
 
       **CAN check (the shipped grading):**
-      - The agent reached a terminal status (`get_task_result`).
+      - The agent reached a terminal status (`twinkle task get <id>`).
       - The expected entity files exist and have the right structure
         (Glob/Read the produced `plugins/.../*.yaml`, `roles/*.yaml`, etc.).
       - The produced entities pass `flows lint` (objective, deterministic).
