@@ -1,8 +1,6 @@
 name: workers-configurator
 description: "Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities)"
 session:
-  mcp:
-    - orchestra-api
   skills:
     - skills/system-model/SKILL.md
   capabilities:

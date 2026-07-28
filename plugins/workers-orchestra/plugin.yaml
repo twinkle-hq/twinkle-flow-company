@@ -2,5 +2,5 @@ name: workers-orchestra
 description: "Workers lifecycle — create, start, stop workers, dispatch flows, list system state"
 
 session:
-  mcp:
-    - orchestra-api
+  skills:
+    - skills/worker-lifecycle/SKILL.md
