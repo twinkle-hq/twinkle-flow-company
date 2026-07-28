@@ -39,7 +39,7 @@ anti_rationalization:
     - thought: "I don't need a baseline — just test with the configuration"
       reality: "Without baseline, you can't measure improvement. The with/without comparison is what proves the configuration adds value."
     - thought: "The test passed, the agent is ready for production"
-      reality: "A 'done' status doesn't mean the agent worked well. Inspect the artifacts: do the produced entity files have the right structure, and does flows lint pass clean? Malformed or lint-failing entities behind a 'done' status is a failure. (Behavioral log analysis — phase order, skipped steps — is NOT available: get_task_logs returns only run metrics, not the trace.)"
+      reality: "A 'done' status doesn't mean the agent worked well. Inspect the artifacts: do the produced entity files have the right structure, and does flows lint pass clean? Malformed or lint-failing entities behind a 'done' status is a failure. (Behavioral log analysis — phase order, skipped steps — is NOT available: `twinkle run list --task_id <id> --limit 1` returns only the run row, not the trace.)"
     - thought: "I'll fix the configuration and skip re-testing — the fix is obviously correct"
       reality: "Every fix needs re-testing. Obvious fixes can break other test cases. Run the full suite again."
     - thought: "Assertions are overkill for this, I can just eyeball the results"
@@ -47,7 +47,7 @@ anti_rationalization:
 
 phases:
   prepare-tests:
-    tools: [create_worker, Bash, Read, Glob]
+    tools: ["twinkle worker create", Bash, Read, Glob]
     goal: "Set up test environment and finalize test cases"
     actions:
       - text: "Read test cases from the Brief (injected from Job 1 dependency)"
@@ -64,7 +64,7 @@ phases:
     next: run-tests
 
   run-tests:
-    tools: [create_worker, start_worker, create_task]
+    tools: ["twinkle worker create", "twinkle worker start", "twinkle task create"]
     goal: "Execute test cases with configuration and baseline in parallel"
     actions:
       - text: >
@@ -84,8 +84,9 @@ phases:
     actions:
       - text: >
           For each test case, write concrete assertions over the ARTIFACTS the
-          agent produces — not over execution-log content (get_task_logs returns
-          only run metrics, never the behavioral trace):
+          agent produces — not over execution-log content (`twinkle run list
+          --task_id <id> --limit 1` returns only the run row, never the
+          behavioral trace):
           - Did the agent reach a terminal status, and are the declared outputs
             present and non-empty in result.md?
           - Do the expected entity files exist with the expected structure?
@@ -103,7 +104,7 @@ phases:
     next: collect-results
 
   collect-results:
-    tools: [get_worker_status, get_task_result, Read, Glob, Bash, stop_worker]
+    tools: ["twinkle worker status", "twinkle task get", "twinkle run list", Read, Glob, Bash, "twinkle worker stop"]
     goal: "Collect the artifacts from all test runs"
     actions:
       - "Wait for all test runs to complete (poll get_worker_status)"
@@ -114,7 +115,7 @@ phases:
             into its worker repo)
           - Run `flows lint --format=json` over the produced entities and capture
             the result (exit code + diagnostics)
-        why: "We grade on artifacts. get_task_logs returns only run metrics (tokens, cost, duration) — not the JSONL trace — so it cannot show HOW the agent worked. The produced entity files + their lint result are the objective evidence."
+        why: "We grade on artifacts. `twinkle run list --task_id <id> --limit 1` returns only the run row (tokens, cost, duration) — not the JSONL trace — so it cannot show HOW the agent worked. The produced entity files + their lint result are the objective evidence."
       - "get_task_result also yields timing/token metrics — save those for the benchmark aggregation"
       - "Save results, produced entities, lint output, and timing data to workspace directories"
       - "Stop and clean up all test workers"
@@ -133,7 +134,7 @@ phases:
           - Failed: assertion criteria not met, with explanation (missing file,
             wrong structure, or the exact lint filepath:line diagnostic)
         why: "Grading must be evidence-based. Every verdict needs proof from the produced entity files, result.md, or the flows-lint output."
-      - text: "For with-config runs: the entity-quality + lint result IS the quality signal. Do NOT claim to grade behavioral log quality (phase order, skipped steps, rationalization) — get_task_logs cannot supply that trace. If a behavioral signal is genuinely needed, file it as a follow-up requiring the history-service execution-logs platform tool."
+      - text: "For with-config runs: the entity-quality + lint result IS the quality signal. Do NOT claim to grade behavioral log quality (phase order, skipped steps, rationalization) — `twinkle run list --task_id <id> --limit 1` cannot supply that trace. If a behavioral signal is genuinely needed, file it as a follow-up requiring the history-service execution-logs platform tool."
       - "For baseline runs: grade the same artifact assertions to establish the comparison baseline"
       - "Save grading results per run"
     gate: "All runs graded with artifact/lint-based verdicts for every assertion"
@@ -214,8 +215,9 @@ sections:
       - "output looks correct" (subjective)
       - "file exists" without checking content (trivially satisfied)
       - "agent performed well" (not verifiable)
-      - "agent followed the phases in order" (NOT checkable — get_task_logs
-        returns only run metrics, not the behavioral trace)
+      - "agent followed the phases in order" (NOT checkable — `twinkle run
+        list --task_id <id> --limit 1` returns only the run row, not the
+        behavioral trace)
 
   - name: "Interpreting Baseline Comparison"
     content: |
@@ -241,13 +243,13 @@ sections:
         outputs in result.md. These are objective and deterministic.
       - **What is NOT graded (and why):** the agent's behavioral trace —
         which phases it visited, whether it skipped a step or rationalized a
-        shortcut. `get_task_logs` returns only run **metrics** (tokens, cost,
-        duration, status), not the JSONL trace, so behavioral assertions are not
-        honestly checkable here. Do not write assertions that pretend to check
-        them.
+        shortcut. `twinkle run list --task_id <id> --limit 1` returns only the
+        run row (tokens, cost, duration, status), not the JSONL trace, so
+        behavioral assertions are not honestly checkable here. Do not write
+        assertions that pretend to check them.
       - **Follow-up for behavioral grading:** history-service stores an
-        `execution-logs` report per run; exposing it (or an equivalent
-        orchestra-api trace tool) is the platform change that would let a future
+        `execution-logs` report per run; exposing it (or an equivalent trace
+        command) is the platform change that would let a future
         revision assert on actual phase transitions. Until then, artifact + lint
         grading is the truthful contract — and it is strong: a configuration that
         produces clean-linting, well-structured entities is the deliverable.

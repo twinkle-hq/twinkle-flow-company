@@ -2,7 +2,7 @@ name: test-agent
 description: >
   Test a configured agent by creating a test worker, assigning a test task,
   running it, and grading the ARTIFACTS it produces (generated entity files +
-  flows-lint result), not execution-log content. Uses orchestra-api MCP tools.
+  flows-lint result), not execution-log content. Uses the twinkle CLI.
 trigger: "User asks to test an agent configuration, verify a role works correctly, run a sandbox test, or validate that a configured worker performs as expected"
 complexity: medium
 outputs:
@@ -25,7 +25,7 @@ anti_rationalization:
     - thought: "The test task succeeded, so the agent is ready for production"
       reality: "One successful test is necessary but not sufficient. Inspect the produced artifacts: do the generated entity files have the expected structure, and does flows lint pass? A 'done' status with malformed or lint-failing entities is a failure."
     - thought: "I'll read the execution logs to check whether the agent skipped steps"
-      reality: "get_task_logs returns only run metrics (tokens, cost, duration, status) — not the JSONL behavioral trace. You CANNOT read step-by-step behavior from this tool. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read needs a platform tool (history-service execution-logs report) — that is a follow-up, not something this task can do."
+      reality: "`twinkle run list --task_id <id> --limit 1` returns only the run row (tokens, cost, duration, status) — not the JSONL behavioral trace. You CANNOT read step-by-step behavior from this command. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read needs a platform tool (history-service execution-logs report) — that is a follow-up, not something this task can do."
     - thought: "Cleanup isn't important, I'll leave the test worker running"
       reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
 
@@ -41,7 +41,7 @@ phases:
     next: create-test-worker
 
   create-test-worker:
-    tools: [create_worker]
+    tools: ["twinkle worker create"]
     goal: "Create a temporary test worker with the target configuration"
     actions:
       - "create_worker with the target role/plugins, a test-prefixed name, and a test label"
@@ -52,7 +52,7 @@ phases:
     next: create-test-task
 
   create-test-task:
-    tools: [create_task]
+    tools: ["twinkle task create"]
     goal: "Create a task for the test worker to execute"
     actions:
       - text: "create_task with a clear test description that exercises the agent's main capability"
@@ -63,7 +63,7 @@ phases:
     next: start-and-wait
 
   start-and-wait:
-    tools: [start_worker, get_worker_status]
+    tools: ["twinkle worker start", "twinkle worker status"]
     goal: "Start the test worker and wait for task completion"
     actions:
       - "start_worker — begin the test worker"
@@ -74,7 +74,7 @@ phases:
     next: evaluate
 
   evaluate:
-    tools: [get_task_result, Read, Glob, Bash]
+    tools: ["twinkle task get", "twinkle run list", Read, Glob, Bash]
     goal: "Assess the test by inspecting the ARTIFACTS the agent produced"
     actions:
       - "get_task_result — read the task's terminal status and result.md summary"
@@ -91,7 +91,7 @@ phases:
             objective pass signal — lint failures are a hard fail.
           - result.md outputs. Verify the declared outputs are present and
             non-empty in the result frontmatter.
-        why: "get_task_logs returns only run METRICS (tokens, cost, duration, status) — NOT the JSONL behavioral trace. So we cannot read the agent's step-by-step reasoning from this task. We grade what we CAN verify objectively: the artifacts the agent left behind and whether they lint clean."
+        why: "`twinkle run list --task_id <id> --limit 1` returns only the run row (tokens, cost, duration, status) — NOT the JSONL behavioral trace. So we cannot read the agent's step-by-step reasoning from this task. We grade what we CAN verify objectively: the artifacts the agent left behind and whether they lint clean."
       - type: verify
         check: "flows lint --format=json over the produced entities returns [] (exit 0)"
         on_fail: "Record the lint findings as a test failure with the exact filepath:line diagnostics"
@@ -102,7 +102,7 @@ phases:
     next: cleanup
 
   cleanup:
-    tools: [stop_worker]
+    tools: ["twinkle worker stop"]
     goal: "Remove test resources"
     actions:
       - "stop_worker — stop the test worker"
@@ -126,14 +126,15 @@ sections:
       - The declared `outputs` are present in result.md.
 
       **CANNOT check (and why):**
-      - The agent's step-by-step behavioral trace. `get_task_logs` returns only
-        run **metrics** (tokens, cost, duration, status) — not the JSONL trace.
-        So "did the agent skip a phase / rationalize a shortcut?" is NOT
-        answerable from this task. Do not pretend otherwise.
+      - The agent's step-by-step behavioral trace. `twinkle run list --task_id
+        <id> --limit 1` returns only the run row (tokens, cost, duration,
+        status) — not the JSONL trace. So "did the agent skip a phase /
+        rationalize a shortcut?" is NOT answerable from this task. Do not
+        pretend otherwise.
 
       **Follow-up to enable behavioral grading:** a platform tool is needed —
       history-service already stores an `execution-logs` report per run; exposing
-      it (or an equivalent orchestra-api trace tool) would let a future revision
+      it (or an equivalent trace command) would let a future revision
       of this task assert on actual phase transitions. Until then, artifact +
       lint grading is the truthful contract.
 
