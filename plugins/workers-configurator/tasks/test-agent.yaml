@@ -64,12 +64,16 @@ phases:
           name.
         why: >
           `worker create` and `worker update` share one route
-          (`PUT /api/bff/workers/:ws/:w`), so a create against an existing name
-          does not refuse: it silently UPDATES that worker with the plugin list
-          you passed. Colliding with a real worker means you reconfigured it,
-          and the cleanup phase would then delete it and its Linear label.
-          Record in the result that this phase created the worker — cleanup
-          depends on knowing that.
+          (`PUT /api/bff/workers/:ws/:w`), and config-service guards only
+          `git_repo`: a create against an existing name is refused (`409`) if
+          `--git_repo` names a DIFFERENT repo than the one already stored —
+          but this lane always passes the SAME sandbox repo URL, so a
+          collision with a leftover worker from a prior test run silently
+          UPDATES it with the plugin list you passed instead of refusing.
+          Colliding with a real worker means you reconfigured it, and the
+          cleanup phase would then delete it and its Linear label. Record in
+          the result that this phase created the worker — cleanup depends on
+          knowing that.
       - text: >
           `twinkle worker create <ws> test-<name> --git_repo <existing sandbox repo URL>
           --plugins <p> [--plugins <p> ...]` — a test-prefixed worker name and the
@@ -220,8 +224,9 @@ sections:
       spelled through the alias.)
 
       **Consequence — and there are THREE deployments, not two.**
-      `resolve_twinkle_env()` in `services/controllers/runner/runner.sh` has
-      exactly three branches, and this lane only runs end-to-end in the first:
+      `resolve_twinkle_env()` in `services/controllers/runner/runner.sh`
+      sorts into three observable outcomes here, and this lane only runs
+      end-to-end in the first:
 
       1. **Single-host** (`CORE_API_URL` empty) — the runner sets
          `TWINKLE_URL=http://gateway`, the default vhost, which has no auth

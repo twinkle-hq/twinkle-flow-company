@@ -464,7 +464,8 @@ is wired — see "Three deployments" below. Never run `twinkle auth login`.
   — `scope: 'worker'`
 - `twinkle worker create <ws> <w>`, `twinkle worker update <ws> <w>`,
   `twinkle worker delete <ws> <w>`, `twinkle worker status <ws> <w>`,
-  `twinkle tracker worker-config <ws> <w>` — **`scope: 'admin'`**
+  `twinkle tracker worker-config <ws> <w>`, `twinkle library list <ws>`
+  — **`scope: 'admin'`**
 
 The four `scope: 'worker'` reads/writes on the third line are how you check the
 platform's view against the repo's, and they are the ones the configurator's job
@@ -484,17 +485,20 @@ actually needs:
   sync, then read this back to confirm the platform sees what you wrote.
 - **`twinkle library sync <ws> <namespace>`** — pull the latest definitions for
   one attached library into the platform. Run it after you commit and push
-  entity edits, or the platform keeps serving the previous commit.
-  `twinkle library list <ws>` gives you the namespaces.
+  entity edits, or the platform keeps serving the previous commit. The
+  `<namespace>` comes from `twinkle library list <ws>` — admin-scoped, listed
+  below with the other five.
 
 **`twinkle worker update <ws> <w>`** is the admin-scoped write for changing an
 existing worker — `--plugins` (repeatable), `--model`, `--machine`,
 `--visible_workers`, `--description` and the rest. It shares one route with
-`worker create` (`PUT /api/bff/workers/:ws/:w`), so a worker create against a
-name that already exists silently UPDATES that worker instead of refusing.
-Check the name is free before creating one.
+`worker create` (`PUT /api/bff/workers/:ws/:w`), and config-service guards only
+`git_repo`: a create against a name that already exists is refused (`409`) if
+`--git_repo` names a DIFFERENT repo than the one already stored there; with the
+SAME repo, or with `--git_repo` omitted, it silently UPDATES that worker
+instead. Check the name is free before creating one.
 
-Three things to know before using the admin five:
+Three things to know before using the admin six:
 
 1. **They can be refused, and the refusal is not the only failure shape.** See
    "Three deployments" immediately below — a `403` and a connection error mean
@@ -521,9 +525,9 @@ Three things to know before using the admin five:
 
 ### Three deployments, three failure shapes
 
-`resolve_twinkle_env()` in `services/controllers/runner/runner.sh` has exactly
-three branches, and an error you cannot place in one of them you cannot
-diagnose.
+`resolve_twinkle_env()` in `services/controllers/runner/runner.sh` sorts into
+three observable outcomes, and an error you cannot place in one of them you
+cannot diagnose.
 
 1. **Single-host** (`CORE_API_URL` empty) — the runner sets
    `TWINKLE_URL=http://gateway`, the default vhost, which has no auth

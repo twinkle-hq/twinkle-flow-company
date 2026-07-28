@@ -69,8 +69,9 @@ selects the row.
 ## Where this CLI is pointed — three deployments, three failure shapes
 
 The runner decides this before your session starts, in `resolve_twinkle_env()`
-(`services/controllers/runner/runner.sh`). It has exactly three branches, and
-an error you cannot place in one of them you cannot diagnose.
+(`services/controllers/runner/runner.sh`). What it emits sorts into three
+observable shapes, and an error you cannot place in one of them you cannot
+diagnose.
 
 **1 — Single-host.** `CORE_API_URL` is empty, so the runner sets
 `TWINKLE_URL=http://gateway`: the gateway's DEFAULT vhost, which carries no
@@ -137,10 +138,10 @@ today.
   202 response means the command reached the bus, not that the worker is
   already running or stopped. There is no poll-by-command endpoint — confirm
   with `worker status` afterward, not by assuming the call succeeded.
-- **`worker capabilities <ws> <w>`** — the flows and tasks that worker can
-  actually be asked to run, as the platform resolved them from its plugins.
-  This is what `flow dispatch` can address; a flow that exists in the workspace
-  but is absent here is not dispatchable to this worker.
+- **`worker capabilities <ws> <w>`** — the dispatchable flows and capability
+  tasks the platform resolved from this worker's own plugins. `flow dispatch`
+  performs no capability check of its own: it dispatches any flow that exists
+  in the workspace, whether or not it is listed here.
 - **`flow list --workspace <ws>`** — flows defined for the workspace, by name.
   The flag is not optional in practice — see above.
 - **`flow dispatch <name> --workspace <ws> --worker <w>`** — trigger a flow run
