@@ -10,9 +10,9 @@ agent the worker-lifecycle commands of the **`twinkle` CLI**:
 > *Workers lifecycle — list workers, check status, start and stop them, list and
 > dispatch flows, through the twinkle CLI.*
 
-It teaches no `worker create`: creating a worker is `scope: 'admin'` and, with
-no `--git_repo` and a GitHub token the BFF can resolve, creates a real private
-GitHub repository. That is a configurator operation, not an executive one — see
+It teaches no `worker create`: that command prints `scope: admin`, and with no
+`--git_repo` it can create a real private GitHub repository that nothing in the
+CLI ever deletes. It is a configurator operation, not an executive one — see
 [`workers-configurator`](../workers-configurator/README.md).
 
 ## What it wires
@@ -46,34 +46,30 @@ twinkle flow dispatch <name> --workspace <ws> --worker <w>
 twinkle run list --workspace <ws> --worker <w> --limit <n>
 ```
 
-`worker start`/`worker stop` are fire-and-forget (a `202` means the command
-reached the bus, not that the worker has actually changed state — confirm with
-`worker status` afterward).
+`worker start`/`worker stop` are fire-and-forget — the skill's instruction is to
+confirm with `worker status` afterward rather than treat the call returning as
+the worker having changed state.
 
 Three details the skill spells out and this list cannot:
 
 - **The workspace is spelled two ways.** It is a positional on `worker
   start`/`worker stop`/`worker status`/`worker capabilities` and a
   `--workspace` flag on `worker list`/`flow list`/`run list`/`flow dispatch`.
-  Adding that flag to `twinkle worker start` exits 2. There is no server-side
-  workspace binding.
+  Adding that flag to `twinkle worker start` exits 2 with
+  `Unknown option '--workspace'`.
 - **Omitting `--workspace` is harmless on `worker list` and wrong on `flow
-  list`.** `worker list` without it answers fleet-wide. `flow list` without it
-  answers the force-attach SHARED view, and workspace flows arrive through an
-  attached library rather than force-attach — so it returns `[]` on a real
-  deployment, not a fleet-wide union. Always pass `--workspace` to `flow list`;
-  an empty answer without it means the flag was omitted, not that the workspace
-  has no flows.
-- **Three of the eight are `scope: 'admin'`** — `worker list`, `worker status`
-  (the same operation) and `flow dispatch` — and there are three deployment
-  states, not two. Single-host: the runner points the CLI at the default vhost
-  and everything works. Remote machine with `WORKER_API_URL` set: the worker
-  vhost, and the admin three answer `403`. Remote machine with `WORKER_API_URL`
-  unset — **the state a remote machine is in until an operator wires it** — the
-  runner configures nothing, the CLI falls back to `http://localhost` inside the
-  container, reads fail with a connection error and writes are refused
-  outright. The skill teaches the agent to read that third shape as "unwired,
-  report it" rather than as a broken platform to retry.
+  list`.** Measured on a live stand: `worker list` without it answered
+  fleet-wide (4 workers across 3 workspaces); `flow list` without it answered
+  `[]`, and `--workspace sandbox` answered 14 flows. Always pass `--workspace`
+  to `flow list`; an empty answer without it means the flag was omitted, not
+  that the workspace has no flows.
+- **Three of the eight print `scope: admin`** — `worker list`, `worker status`
+  (the same operation) and `flow dispatch` — and an answer comes back in one of
+  three shapes, not two. It answers; or it is a `403` with a JSON body, which
+  is scope; or it is a connection error or a message naming `http://localhost`,
+  which means the CLI is not pointed at a deployment on this machine. The skill
+  teaches the agent to read that third shape as "unwired, report it" rather
+  than as a broken platform to retry.
 
 ## Which role includes it
 

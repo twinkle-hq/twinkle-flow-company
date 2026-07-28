@@ -7,11 +7,10 @@ description: Drive worker lifecycle and flow dispatch through the twinkle CLI �
 
 You reach the platform through the `twinkle` CLI, not through an MCP tool. It is
 already on `PATH` in this session. Whether it is also POINTED at a deployment
-depends on how this machine is wired, and there are three cases that fail in
-three different ways — read "Where this CLI is pointed" below before you
-diagnose any error from it. Never run `twinkle auth login`: nothing in a worker
-session holds a credential to log in with, and the CLI's own error text will
-suggest it anyway.
+depends on how this machine is wired, and an answer comes back in one of three
+shapes — read "Three shapes an answer can take" below before you diagnose any
+error from it. **Never run `twinkle auth login`**, however strongly the CLI's own
+error text suggests it.
 
 ## The eight commands this plugin gives you
 
@@ -35,93 +34,64 @@ interchangeable.**
   runs, add that flag to it and the whole command exits 2 with
   `twinkle: worker start: Unknown option '--workspace'.`
 - `worker list`, `flow list` and `run list` take `--workspace` as a **query
-  filter**. There is no server-side binding to the workspace you are running
-  in. But what OMITTING the flag does is different for `worker list` and for
-  `flow list`, and only one of the two is harmless:
+  filter**. But what OMITTING the flag does is different for `worker list` and
+  for `flow list`, and only one of the two is harmless:
   - **`worker list` without it answers fleet-wide** — every worker in every
     workspace the platform knows about (measured on a live stand: 4 workers
     across 3 workspaces). The flag narrows an answer you would otherwise still
     get.
-  - **`flow list` without it does NOT answer fleet-wide.** It answers the
-    force-attach SHARED view, and a workspace's flows arrive through an
-    attached *library*, not through force-attach — so on a real deployment it
-    returns `[]` (measured: `[]` with no flag, 14 flows with
-    `--workspace sandbox`). **Always pass `--workspace` to `flow list`.** An
-    empty answer without the flag means "you omitted the flag", never "this
-    workspace has no flows to dispatch" — and acting on the second reading is
-    how an executive concludes there is nothing to run.
-- `worker status <ws> <w>` takes both: the two positionals are applied
-  **client-side**, because no per-worker status endpoint exists anywhere in the
-  system and the command is an alias onto the fleet-wide worker list. Passing
-  `--workspace` narrows what the server sends; the positionals are what pick
-  the row.
+  - **`flow list` without it does NOT answer fleet-wide.** Measured on the same
+    stand: `[]` with no flag, 14 flows with `--workspace sandbox`. **Always
+    pass `--workspace` to `flow list`.** An empty answer without the flag means
+    "you omitted the flag", never "this workspace has no flows to dispatch" —
+    and acting on the second reading is how an executive concludes there is
+    nothing to run.
+- `worker status <ws> <w>` takes both. Its `--help` prints
+  `operation: worker.list`, `GET /api/bff/workers` — the two positionals are
+  the CLI's own client-side filter over that answer. Passing `--workspace`
+  narrows what the server sends; the positionals are what pick the row.
 - `flow dispatch <name>` takes the flow name as a positional and `--workspace` /
   `--worker` as flags.
 
 When in doubt run `twinkle <group> <action> --help`: it prints the command's
 signature, its flag list and its `scope:` line. **With one exception, and it is
-`worker status`.** Because that command is an alias onto `worker.list`, whose
-path has no parameters, its help prints `twinkle worker status [--flags]` and
-offers only `--workspace` — the two positionals are the CLI's own client-side
-filter and appear nowhere in that output. Type them anyway; they are what
-selects the row.
+`worker status`.** Its help prints `twinkle worker status [--flags]` and offers
+only `--workspace`; the two positionals appear nowhere in that output. Type
+them anyway — they are what selects the row.
 
-## Where this CLI is pointed — three deployments, three failure shapes
+Five of the eight are `scope: 'worker'` — `worker start`, `worker stop`,
+`worker capabilities`, `flow list`, `run list`. Three are **`scope: 'admin'`** —
+`worker list`, `worker status` (whose help prints `operation: worker.list`) and
+`flow dispatch`. Run the `--help` and read the `scope:` line rather than
+trusting this paragraph.
 
-The runner decides this before your session starts, in `resolve_twinkle_env()`
-(`services/controllers/runner/runner.sh`). What it emits sorts into three
-observable shapes, and an error you cannot place in one of them you cannot
-diagnose.
+## Three shapes an answer can take
 
-**1 — Single-host.** `CORE_API_URL` is empty, so the runner sets
-`TWINKLE_URL=http://gateway`: the gateway's DEFAULT vhost, which carries no
-auth subrequest. **All eight commands work**, admin-scoped ones included.
+Every command here comes back in one of three shapes, and an error you cannot
+place in one of them you cannot diagnose.
 
-**2 — Remote machine, CLI wired.** `CORE_API_URL` and `WORKER_API_URL` are both
-set. The runner points the CLI at the WORKER vhost and mints a
-`scope: 'worker'` token, and that vhost admits only operations the registry
-declares `scope: 'worker'`:
+**1 — It answers.** All eight commands are available to you in this session.
 
-- `worker start`, `worker stop`, `worker capabilities`, `flow list` and
-  `run list` are `scope: 'worker'` — they work.
-- `worker list`, `worker status` (the same operation) and `flow dispatch` are
-  `scope: 'admin'` — they answer **403 at the edge**, before reaching any
-  service.
+**2 — `403` with a JSON body.** That is this session's scope: not a broken
+command, not a transient failure, and no retry or flag changes it. The three
+`scope: 'admin'` commands above are the ones that can come back this way. Say
+so and use what you have.
 
-A 403 here is this session's scope: not a broken command, not a transient
-failure, and no retry or flag changes it. Say so and use what you have.
+**3 — A connection error, or any message naming `http://localhost`.** The CLI
+is not pointed at a deployment on this machine. A read warns on stderr first —
+measured verbatim: `twinkle: no --url, --profile, TWINKLE_URL or stored profile
+— reading from the default vhost http://localhost`.
 
-**3 — Remote machine, CLI NOT wired.** `CORE_API_URL` is set and
-`WORKER_API_URL` is empty. The runner logs `WORKER_API_URL unset on a remote
-machine; the twinkle CLI is mounted but unconfigured` and then emits
-**nothing** — no URL, no token. The CLI falls back to its compiled-in default
-`http://localhost`, which inside this container is nothing at all. **This is
-the state a remote machine stays in until an operator adds worker-vhost DNS and
-`WORKER_API_URL` — an operator-only change no session can make.** It shows up
-in two shapes:
+**Never run `twinkle auth login` and never invent a `--url`**, however strongly
+the CLI's own error text suggests them: there is no credential to log in with
+and no address you can supply that reaches the platform from here. This is not
+a broken deployment and not something a retry fixes. Report exactly that — "the
+twinkle CLI is unconfigured on this machine" — and fall back to the non-CLI
+path for whatever you were asked to do.
 
-- a read (`worker list`, `worker status`, `flow list`, `worker capabilities`,
-  `run list`) prints `twinkle: no --url, --profile, TWINKLE_URL or stored
-  profile — reading from the default vhost http://localhost` on stderr, then
-  fails with a **connection error**;
-- a write (`worker start`, `worker stop`, `flow dispatch`) is refused before
-  any network call, with `no target named, and POST … would go to the default
-  vhost http://localhost … Name it: --url <base>, --profile <name>,
-  TWINKLE_URL, or twinkle auth login`.
-
-**Do none of what that second message suggests.** There is no credential to log
-in with, and no `--url` you can invent reaches the platform from here. This is
-not a broken deployment and not something a retry fixes: the CLI is simply not
-wired up on this machine. Report exactly that — "the twinkle CLI is unconfigured
-on this machine" — and fall back to the non-CLI path for whatever you were
-asked to do.
-
-**Telling the three apart is the point of this section.** A `403` with a JSON
-body is case 2 and means scope. A connection error, or any message naming
-`http://localhost`, is case 3 and means unwired. Anything that answers is case
-1. Reading case 3 as a broken platform and retrying it is the exact misdiagnosis
-this section exists to prevent — and it is the case every remote machine is in
-today.
+**Telling the three apart is the point of this section.** Reading shape 3 as a
+broken platform and retrying it is the exact misdiagnosis this section exists to
+prevent.
 
 `twinkle <group> <action> --help` prints each operation's `scope:` line.
 
@@ -130,43 +100,46 @@ today.
 - **`worker list --workspace <ws>`** — every worker in the workspace, with its
   state. Start here when you need to know what exists before acting on one.
 - **`worker status <ws> <w>`** — one worker's state, selected from the fleet
-  list after it arrives (see above). Add `--json` for
-  `.state` / `.machine_online`. `machine_online` is derived from the machine's
-  heartbeat (every 15s, stale past 45s), so a status read can lag reality by up
-  to that much.
-- **`worker start <ws> <w>` / `worker stop <ws> <w>`** — fire-and-forget: the
-  202 response means the command reached the bus, not that the worker is
-  already running or stopped. There is no poll-by-command endpoint — confirm
-  with `worker status` afterward, not by assuming the call succeeded.
-- **`worker capabilities <ws> <w>`** — the dispatchable flows and capability
-  tasks the platform resolved from this worker's own plugins. `flow dispatch`
-  performs no capability check of its own: it dispatches any flow that exists
-  in the workspace, whether or not it is listed here.
+  list after it arrives (see above). Add `--json` for `.state` /
+  `.machine_online` (measured on a live stand: `{"name":"executive",
+  "workspace":"sandbox","state":"stopped", …,"machine_online":true}`). One read
+  can lag what is actually true — re-read it rather than treating a single
+  answer as final.
+- **`worker start <ws> <w>` / `worker stop <ws> <w>`** — fire-and-forget.
+  Confirm the worker actually changed state with `worker status` afterward;
+  never treat the call returning as the worker being started or stopped.
+- **`worker capabilities <ws> <w>`** — **run this before `flow dispatch`, and
+  dispatch to a worker only a flow this command lists for it.** It answers an
+  `active` list, and on a STOPPED worker that list is empty (measured on a live
+  stand: `{"worker":"executive","description":"","active":[]}`) — so start the
+  worker first, and never read an empty `active` as "this worker can run
+  nothing".
 - **`flow list --workspace <ws>`** — flows defined for the workspace, by name.
   The flag is not optional in practice — see above.
-- **`flow dispatch <name> --workspace <ws> --worker <w>`** — trigger a flow run
-  addressed to one worker. This is dispatch, not delegation: it starts a DAG
-  the flow itself defines, it does not create a one-off task from free text.
+- **`flow dispatch <name> --workspace <ws> --worker <w>`** — trigger a run of a
+  flow that already exists, addressed to one worker. It is not a way to hand a
+  worker a one-off task from free text.
 - **`run list --workspace <ws> --worker <w> --limit <n>`** — recent run rows for
-  a worker: tokens, cost, duration, status, machine. This is the run row and
-  only the run row — never the step-by-step behavioural trace — so use it to
-  see whether recent work completed and what it cost, not to reconstruct how an
-  agent worked.
+  a worker. Measured on a live stand, a row carries `status`, `started_at`,
+  `completed_at`, `duration_seconds`, `input_tokens`, `output_tokens`,
+  `cost_usd`, `summary`, `machine` — and no step-by-step behavioural trace. Use
+  it to see whether recent work completed and what it cost, not to reconstruct
+  how an agent worked.
 
 ## Before dispatching or starting
 
-A task addressed to a stopped worker sits Ready forever — nothing in this
-system starts a worker on task arrival. Check `worker status` (or `worker
-list`) before `flow dispatch`, and `worker start` first if it is not already
-running.
+Check `worker status` (or `worker list`) before `flow dispatch`, and
+`worker start` first if the worker is not already running. A task addressed to
+a stopped worker is not picked up.
 
 ## Error shapes
 
-- `409 {"error":"machine_offline"}` — the worker's machine has not sent a
-  heartbeat in the last 45 seconds.
-- `404` — unknown workspace or worker.
-- `503 {"error":"command_bus_unavailable"}` — the command bus is down; retry
-  later, this is not a "worker doesn't exist" answer.
-- `403`, a connection error, or a message naming `http://localhost` — none of
-  these is about the worker. They are deployment cases 2 and 3; go read "Where
-  this CLI is pointed" before you retry anything.
+Every failure sorts into the three shapes above, and none of the three is a
+statement about the worker:
+
+- **`403` with a JSON body** — scope. Report it; do not retry.
+- **A connection error, or any message naming `http://localhost`** — the CLI is
+  unconfigured here. Report it; do not retry.
+- **Anything else** — do not read a failed `worker start`, `worker stop` or
+  `flow dispatch` as "this worker does not exist". Re-read `worker status`
+  before concluding anything about the worker itself.

@@ -180,13 +180,14 @@ inspection.
   the execution log), and clean up.
 
 > **Honest grading boundary** (documented in both test tasks): `twinkle run
-> list --task_id <id> --limit 1` returns only run **metrics** (tokens, cost,
-> duration, status), **not** the JSONL behavioral trace. So these tasks grade on
-> what is repo-locally verifiable — terminal status, produced entity files +
-> their structure, the `flows lint` result, and declared outputs — and
-> explicitly do **not** assert "the agent followed phases in order." Behavioral
-> grading is named as a deferred follow-up requiring a platform tool (the
-> history-service `execution-logs` report).
+> list --task_id <id> --limit 1` returns only the run row — measured on a live
+> stand, its fields are status, timings, tokens, cost, summary and machine,
+> with **no** JSONL behavioral trace. So these tasks grade on what is
+> repo-locally verifiable — terminal status, produced entity files + their
+> structure, the `flows lint` result, and declared outputs — and explicitly do
+> **not** assert "the agent followed phases in order." Behavioral grading is
+> named as a deferred follow-up requiring a platform tool that exposes the
+> execution trace.
 
 ### External-skill adaptation
 
@@ -236,13 +237,14 @@ are handled by the runner-side git guards.
 
 The `twinkle` CLI is the platform-side half: the sandbox-testing tasks use it to
 spin up and grade throwaway test workers, and the system-model skill teaches the
-reads and writes that reconcile the repo against what the platform actually
-resolved — `plugin list --workspace`, `role list --workspace`,
-`worker capabilities`, `library sync` (all `scope: 'worker'`) and
-`worker update` (`scope: 'admin'`). The `--workspace` flag is not optional on
-the two list commands: without it they answer the force-attach shared view, not
-a union. See `skills/system-model/SKILL.md` for the full entity model and for
-the three deployment states the CLI can be in.
+reads and writes that reconcile the repo against what the platform answers —
+`plugin list --workspace`, `role list --workspace`, `worker capabilities`,
+`library sync` (all `scope: 'worker'`) and `worker update` (`scope: 'admin'`).
+The `--workspace` flag is not optional on the two list commands: measured on a
+live stand, `plugin list` answered 6 plugins with no flag and 11 with
+`--workspace sandbox`, and `role list` answered `[]` with no flag and 2 with it.
+See `skills/system-model/SKILL.md` for the full entity model and for the three
+shapes an answer from the CLI can take.
 
 ## Source notes
 
