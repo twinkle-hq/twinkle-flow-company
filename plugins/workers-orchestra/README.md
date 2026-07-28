@@ -10,10 +10,10 @@ agent the worker-lifecycle commands of the **`twinkle` CLI**:
 > *Workers lifecycle — list workers, check status, start and stop them, list and
 > dispatch flows, through the twinkle CLI.*
 
-It teaches no `worker create`: that command prints `scope: admin`, and with no
-`--git_repo` it can create a real private GitHub repository that nothing in the
-CLI ever deletes. It is a configurator operation, not an executive one — see
-[`workers-configurator`](../workers-configurator/README.md).
+It teaches no `worker create`. That command prints `scope: admin`, and it is a
+configurator operation rather than an executive one — see
+[`workers-configurator`](../workers-configurator/README.md), which carries the
+`--git_repo` rule that goes with it.
 
 ## What it wires
 
@@ -27,9 +27,9 @@ session:
 That one line compiles
 [`skills/worker-lifecycle/SKILL.md`](skills/worker-lifecycle/SKILL.md) into the
 session's `SKILL.md`, teaching the agent to reach the platform through the
-`twinkle` CLI (already on `PATH`; whether it is also pointed at a deployment
-depends on how the machine is wired — never `twinkle auth login`) rather than
-through an MCP tool.
+`twinkle` CLI rather than through an MCP tool — and to treat both "is there a
+`twinkle` command here" and "is it pointed at a deployment" as open questions
+answered by the four shapes below (never `twinkle auth login`).
 
 ### The `worker-lifecycle` skill
 
@@ -50,7 +50,7 @@ twinkle run list --workspace <ws> --worker <w> --limit <n>
 confirm with `worker status` afterward rather than treat the call returning as
 the worker having changed state.
 
-Three details the skill spells out and this list cannot:
+Four details the skill spells out and this list cannot:
 
 - **The workspace is spelled two ways.** It is a positional on `worker
   start`/`worker stop`/`worker status`/`worker capabilities` and a
@@ -61,15 +61,23 @@ Three details the skill spells out and this list cannot:
   list`.** Measured on a live stand: `worker list` without it answered
   fleet-wide (4 workers across 3 workspaces); `flow list` without it answered
   `[]`, and `--workspace sandbox` answered 14 flows. Always pass `--workspace`
-  to `flow list`; an empty answer without it means the flag was omitted, not
-  that the workspace has no flows.
+  to `flow list`; read an empty answer that came back without it as "the flag
+  was omitted", never as "the workspace has no flows".
+- **A stopped worker's `active` list is not necessarily empty.** Measured on a
+  live stand over three workers all reading `"state":"stopped"`: two answered
+  `"active":[]` and `qa/qa-worker` answered two entries. The skill's
+  instruction is to run `worker capabilities` before `flow dispatch` and to
+  dispatch only what it lists — and never to start or stop a worker in order to
+  change the answer.
 - **Three of the eight print `scope: admin`** — `worker list`, `worker status`
-  (the same operation) and `flow dispatch` — and an answer comes back in one of
-  three shapes, not two. It answers; or it is a `403` with a JSON body, which
-  is scope; or it is a connection error or a message naming `http://localhost`,
-  which means the CLI is not pointed at a deployment on this machine. The skill
-  teaches the agent to read that third shape as "unwired, report it" rather
-  than as a broken platform to retry.
+  (the same operation) and `flow dispatch`.
+- **An answer comes back in one of four shapes, not two.** It answers; or it is
+  a `403` with a JSON body, which is scope; or it is a connection error or a
+  message naming `http://localhost`, and the CLI is not pointed at a deployment
+  on this machine; or it is a `command not found` naming `twinkle`, and there
+  is no CLI on this machine at all. The skill teaches the agent to read the
+  last two as "report it and fall back" rather than as a broken platform to
+  retry.
 
 ## Which role includes it
 

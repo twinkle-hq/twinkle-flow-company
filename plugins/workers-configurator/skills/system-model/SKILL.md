@@ -87,7 +87,7 @@ auth: { type: internal_secret }
 - `remote-pat` and `remote-oauth` URLs must be `https://`.
 - `tool_filter` only works on sidecar types (enforced by `mcp-runtime /proxy`; remote paths have no proxy layer).
 - `internal.registration_payload_fields` entries must be in the context-bag vocabulary: `task_id`, `task_identifier`, `team_id`, `scope_labels`, `visible_workers`, `role`. `workspace` and `worker` are always sent implicitly — do not list them.
-- For sidecar `env_schema`, mark credential fields with `secret: true` so the Settings UI renders them as password inputs and the API redacts them on read.
+- For sidecar `env_schema`, mark every credential field with `secret: true`.
 
 MCP entity declarations live in a library repo's `mcp/` directory (flat, at the repo root). The five reserved internals are seeded into mcp-registry at the platform level; a library repo only declares its own `sidecar-http` / `sidecar-stdio` / `remote-pat` / `remote-oauth` providers. Create MCP entities before plugins that reference them.
 
@@ -133,7 +133,7 @@ flows: [my-flow]                       # DAGs owned by this plugin
 **Process fields:**
 - `flows` — flow names. YAML files must exist in `plugins/{name}/flows/`.
 
-**SessionStart hook as capability introduction:** Plugins that provide meaningful capabilities should include a SessionStart hook that briefly orients the agent — what abilities this plugin gives and which skill to invoke first for context. Keep it concise: 2-3 sentences, no lists of individual capabilities. Point to the primary knowledge skill (e.g., `/system-model`) so the agent knows where to start.
+**SessionStart hook as capability introduction:** Plugins that provide meaningful capabilities should include a SessionStart hook that briefly orients the agent — what abilities this plugin gives and which skill to invoke first for context. Keep it concise: 2-3 sentences, no lists of individual capabilities. Point to the primary knowledge skill (e.g., `/system-model`).
 
 **What plugins do NOT contain:** tasks (referenced by flows), context (comes from runner), inline MCP definitions (use entities), inline skill content (use file refs).
 
@@ -212,7 +212,7 @@ jobs:
 
 **Trigger types:** `schedule` (cron), `linear` (webhook events with filters), `webhook` (external), `workflow_dispatch` (manual / team-mcp dispatch).
 
-**Triggers:** Event-driven flows should have at least one automatic trigger (schedule, linear, or webhook) — without one they never fire on their own. `workflow_dispatch` alone is also fully valid (the validator accepts it) and is the correct choice for dispatch-initiated processes: meta-configurator flows like `design-agent`, and the executive's `task-decomposition`, are intentionally dispatch-only since they are always initiated by a human or another agent, not by a real-world event. Use an automatic trigger when the process should react to events; use `workflow_dispatch`-only when it is always explicitly dispatched.
+**Triggers:** Give an event-driven flow at least one automatic trigger (schedule, linear, or webhook). `workflow_dispatch` alone is also fully valid — `flows lint` accepts it — and is the correct choice for a dispatch-initiated process. Meta-configurator flows like `design-agent`, and the executive's `task-decomposition`, declare `workflow_dispatch` only. Use an automatic trigger when the process should react to events; use `workflow_dispatch`-only when it is always explicitly dispatched.
 
 **Data flow between jobs:** Job outputs (from task YAML `outputs`) are uploaded as Linear documents. Next job receives dependency documents injected at session start. Only direct `needs` are injected.
 
@@ -345,9 +345,10 @@ flows-core's **MVS (Minimal Version Selection)** resolver walks each library's
 `[dependencies]`, clones + pins every transitive repo at the minimum version that
 satisfies all constraints, and merges the exported entities into a single
 **workspace build list**. Cross-repo references (e.g. a company role listing the
-core plugin `core-memory`) resolve at runtime against this merged view — which is
-why `flows lint` (strictly repo-local) emits a benign "Referenced plugin not
-found" warning for a cross-repo ref that MVS resolves fine.
+core plugin `core-memory`) resolve at runtime against this merged view.
+`flows lint` is strictly repo-local. It emits a benign "Referenced plugin not
+found" warning for a cross-repo ref that MVS resolves fine — read that warning
+as benign, and suppress it in `.flows-lint.yaml` rather than editing the ref.
 
 ### How a repo reaches a worker — two attach mechanisms
 
@@ -451,11 +452,12 @@ You author entities by editing YAML files in the repo and validating them with t
 
 **Reliability** — `flows reliability <task>`: reliability score + recommendations for a task (most useful for complexity >= medium).
 
-**Preview** — `flows preview-skill <task>`: render the SKILL.md the runner will compile from a task, so you can read what the agent will actually see.
+**Preview** — `flows preview-skill <task>`: render the SKILL.md the runner will compile from a task. Read it to see what the agent will actually see.
 
-**twinkle** (CLI — worker/task and platform-config operations). Already on
-`PATH`. Whether it is also POINTED at a deployment depends on how this machine
-is wired — see "Three shapes an answer can take" below. Never run
+**twinkle** (CLI — worker/task and platform-config operations). Whether the
+command exists on this machine, and whether it is POINTED at a deployment, are
+two separate things and neither is a given — see "Four shapes an answer can
+take" below before you diagnose any error from it. Never run
 `twinkle auth login`.
 
 - `twinkle worker start <ws> <w>`, `twinkle worker stop <ws> <w>` — `scope: 'worker'`
@@ -465,6 +467,7 @@ is wired — see "Three shapes an answer can take" below. Never run
   — `scope: 'worker'`
 - `twinkle worker create <ws> <w>`, `twinkle worker update <ws> <w>`,
   `twinkle worker delete <ws> <w>`, `twinkle worker status <ws> <w>`,
+  `twinkle worker list [--workspace <ws>]`,
   `twinkle tracker worker-config <ws> <w>`, `twinkle library list <ws>`
   — **`scope: 'admin'`**
 
@@ -479,18 +482,22 @@ actually needs:
   plugins (`core-memory`, `core-state`, `core-summary`, `system-autocommit`,
   `system-kick-start`, `system-result`), and with `--workspace sandbox` answered
   11; `role list` with no flag answered `[]`, and with `--workspace sandbox`
-  answered 2. An empty or short answer without the flag means you omitted the
-  flag.
+  answered 2. Read an empty or short answer that came back without the flag as
+  "the flag was omitted", and re-run the command with `--workspace` before you
+  report what the platform holds.
 - **`twinkle worker capabilities <ws> <w>`** — read this back after
   `twinkle worker update --plugins …` and a `library sync`, to see what the
-  platform answers for that worker. It answers an `active` list, and on a
-  STOPPED worker that list is empty (measured on a live stand:
-  `{"worker":"executive","description":"","active":[]}`). Read it on a RUNNING
-  worker, and never read an empty `active` as "this worker has no
-  capabilities".
+  platform answers for that worker. It answers `{worker, description, active}`.
+  Measured on a live stand, over three workers that all read `"state":"stopped"`
+  in `worker list`: `sandbox/executive` answered
+  `{"worker":"executive","description":"","active":[]}`, `sandbox/configurator`
+  answered `"active":[]`, and `qa/qa-worker` answered two entries — a flow
+  `qa-review-gate` and a task `qa-parallel-review`. **Do not start or stop a
+  worker in order to change this answer.** When `active` comes back empty after
+  an update, re-check the plugin names you passed and re-run `library sync`.
 - **`twinkle library sync <ws> <namespace>`** — run it after you commit and push
   entity edits. The `<namespace>` comes from `twinkle library list <ws>` —
-  admin-scoped, listed above with the other five.
+  admin-scoped, listed above with the other six.
 
 **`twinkle worker update <ws> <w>`** is the admin-scoped write for changing an
 existing worker — `--plugins` (repeatable), `--model`, `--machine`,
@@ -503,30 +510,29 @@ pick a name that is free, or change the existing worker with
 reconfiguring a worker that is not yours, and no error the command returns is
 worth trusting to tell you that is what happened.
 
-Three things to know before using the admin six:
+Three things to know before using the admin seven:
 
 1. **They can be refused, and the refusal is not the only failure shape.** See
-   "Three shapes an answer can take" immediately below — a `403` and a
-   connection error mean two different things, and only one of them is about
-   scope.
-2. **`twinkle worker create` with no `--git_repo` can create a real private
-   GitHub repository, and nothing here ever deletes one** — not
-   `twinkle worker delete`, not any other command in this CLI. Always pass
-   `--git_repo` naming a repository that already exists.
+   "Four shapes an answer can take" immediately below — a `403`, a connection
+   error and a missing binary are three different facts, and only one of them
+   is about scope.
+2. **Always pass `--git_repo` to `twinkle worker create`, naming a repository
+   that already exists.** With no `--git_repo` the command can create a real
+   private GitHub repository. `twinkle worker delete --help` prints that a
+   delete leaves the worker directory and its git repo on disk alone.
 3. **`twinkle worker delete` reaches outside the platform's own config.** Run
    `twinkle worker delete --help` and read it before you use the command: it
    prints that the call removes the worker's configuration in config-service
    and in the tracker, and deletes **the Linear label the worker filed tasks
-   under — so the label disappears from every issue that carried it**; the
-   worker directory and its git repo are left alone, and workspace-keyed
-   history and journal entries survive. Delete a worker you created; do not
-   delete one you merely found, because its label is on issues that are not
-   yours.
+   under — the label disappears from every issue that carried it**; the worker
+   directory and its git repo are left alone, and workspace-keyed history and
+   journal entries survive. Delete a worker you created. Do not delete one you
+   merely found. On a worker you merely found, the label a delete removes is on
+   issues that are not yours.
 
-### Three shapes an answer can take
+### Four shapes an answer can take
 
-Every command above comes back in one of three shapes, and an error you cannot
-place in one of them you cannot diagnose.
+Place every answer in one of these four before you diagnose it.
 
 1. **It answers.** Everything above is available to you in this session.
 2. **`403` with a JSON body.** That is this session's scope: not a broken
@@ -542,6 +548,13 @@ place in one of them you cannot diagnose.
    unconfigured on this machine" and use the non-CLI path. Retrying this shape
    as though the platform were broken is the misdiagnosis this section exists
    to prevent.
+4. **A `command not found` error naming `twinkle`.** Measured in a shell with
+   no such binary: `bash: twinkle: command not found`, exit status 127. There
+   is no `twinkle` command here. **Do not install one, do not build one, do not
+   retry, and do not run `twinkle auth login`.** Report "there is no twinkle
+   command on this machine", author and validate entities with the repo-local
+   `flows` CLI as usual, and record the platform-side reads and writes you
+   could not make.
 
 `twinkle <group> <action> --help` prints the command's signature, its flag list
 and its `scope:` line. Run it; the lists above are a summary of it.

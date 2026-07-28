@@ -49,7 +49,7 @@ an executive on a workspace you attach the company library to the workspace
 (`workspace_libraries`) and assign the bundled
 [`executive`](../../roles/executive.yaml) role to the worker. That role bundles
 `project-management` together with `workers-orchestra`, `workers-collaboration`,
-`core-memory`, and `core-summary` — so the executive gets this plugin's Linear
+`core-memory`, and `core-summary`. The executive then has this plugin's Linear
 coordination logic plus persistent memory and a structured execution summary.
 
 ## Session config
@@ -104,8 +104,8 @@ continuous overlay
 ## Flows, grouped by kind
 
 All twelve flows dispatch a single `type: agent` job onto the executive worker.
-Each carries `workflow_dispatch: true` so it can also be triggered manually (or
-via team-mcp).
+Each carries `workflow_dispatch: true` — they can also be triggered manually, or
+via team-mcp.
 
 ### Linear-event reactions
 

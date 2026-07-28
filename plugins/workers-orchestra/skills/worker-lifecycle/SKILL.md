@@ -5,12 +5,13 @@ description: Drive worker lifecycle and flow dispatch through the twinkle CLI �
 
 # Worker Lifecycle
 
-You reach the platform through the `twinkle` CLI, not through an MCP tool. It is
-already on `PATH` in this session. Whether it is also POINTED at a deployment
-depends on how this machine is wired, and an answer comes back in one of three
-shapes — read "Three shapes an answer can take" below before you diagnose any
-error from it. **Never run `twinkle auth login`**, however strongly the CLI's own
-error text suggests it.
+You reach the platform through the `twinkle` CLI, not through an MCP tool.
+Whether the command exists on this machine, and whether it is POINTED at a
+deployment, are two separate things and neither is a given — an answer comes
+back in one of four shapes, and one of them is that there is no `twinkle`
+command at all. Read "Four shapes an answer can take" below before you diagnose
+any error from it. **Never run `twinkle auth login`**, however strongly the
+CLI's own error text suggests it.
 
 ## The eight commands this plugin gives you
 
@@ -42,10 +43,10 @@ interchangeable.**
     get.
   - **`flow list` without it does NOT answer fleet-wide.** Measured on the same
     stand: `[]` with no flag, 14 flows with `--workspace sandbox`. **Always
-    pass `--workspace` to `flow list`.** An empty answer without the flag means
-    "you omitted the flag", never "this workspace has no flows to dispatch" —
-    and acting on the second reading is how an executive concludes there is
-    nothing to run.
+    pass `--workspace` to `flow list`.** Read an empty answer that came back
+    without the flag as "the flag was omitted" — never as "this workspace has
+    no flows to dispatch". Re-run it with `--workspace` before you report that
+    there is nothing to run.
 - `worker status <ws> <w>` takes both. Its `--help` prints
   `operation: worker.list`, `GET /api/bff/workers` — the two positionals are
   the CLI's own client-side filter over that answer. Passing `--workspace`
@@ -65,10 +66,9 @@ Five of the eight are `scope: 'worker'` — `worker start`, `worker stop`,
 `flow dispatch`. Run the `--help` and read the `scope:` line rather than
 trusting this paragraph.
 
-## Three shapes an answer can take
+## Four shapes an answer can take
 
-Every command here comes back in one of three shapes, and an error you cannot
-place in one of them you cannot diagnose.
+Place every answer in one of these four before you diagnose it.
 
 **1 — It answers.** All eight commands are available to you in this session.
 
@@ -89,9 +89,16 @@ a broken deployment and not something a retry fixes. Report exactly that — "th
 twinkle CLI is unconfigured on this machine" — and fall back to the non-CLI
 path for whatever you were asked to do.
 
-**Telling the three apart is the point of this section.** Reading shape 3 as a
-broken platform and retrying it is the exact misdiagnosis this section exists to
-prevent.
+**4 — A `command not found` error naming `twinkle`.** Measured in a shell with
+no such binary: `bash: twinkle: command not found`, exit status 127. There is
+no `twinkle` command here. **Do not install one, do not build one, do not
+retry, and do not run `twinkle auth login`.** Report "there is no twinkle
+command on this machine" and fall back to the non-CLI path — the same fallback
+shape 3 gets, on a different fact.
+
+**Telling the four apart is the point of this section.** Reading shape 3 or
+shape 4 as a broken platform and retrying it is the exact misdiagnosis this
+section exists to prevent.
 
 `twinkle <group> <action> --help` prints each operation's `scope:` line.
 
@@ -109,11 +116,14 @@ prevent.
   Confirm the worker actually changed state with `worker status` afterward;
   never treat the call returning as the worker being started or stopped.
 - **`worker capabilities <ws> <w>`** — **run this before `flow dispatch`, and
-  dispatch to a worker only a flow this command lists for it.** It answers an
-  `active` list, and on a STOPPED worker that list is empty (measured on a live
-  stand: `{"worker":"executive","description":"","active":[]}`) — so start the
-  worker first, and never read an empty `active` as "this worker can run
-  nothing".
+  dispatch to a worker only a flow this command lists for it.** It answers
+  `{worker, description, active}`. Measured on a live stand, over three workers
+  that all read `"state":"stopped"` in `worker list`: `sandbox/executive`
+  answered `{"worker":"executive","description":"","active":[]}`,
+  `sandbox/configurator` answered `"active":[]`, and `qa/qa-worker` answered two
+  entries — a flow `qa-review-gate` and a task `qa-parallel-review`. **Do not
+  start or stop a worker in order to change this answer.** An empty `active` is
+  an answer, not an error and not a retry: report it and do not dispatch.
 - **`flow list --workspace <ws>`** — flows defined for the workspace, by name.
   The flag is not optional in practice — see above.
 - **`flow dispatch <name> --workspace <ws> --worker <w>`** — trigger a run of a
@@ -134,12 +144,14 @@ a stopped worker is not picked up.
 
 ## Error shapes
 
-Every failure sorts into the three shapes above, and none of the three is a
+Every failure sorts into the four shapes above, and none of the four is a
 statement about the worker:
 
 - **`403` with a JSON body** — scope. Report it; do not retry.
 - **A connection error, or any message naming `http://localhost`** — the CLI is
   unconfigured here. Report it; do not retry.
+- **A `command not found` naming `twinkle`** — there is no CLI here. Report it;
+  do not retry and do not install one.
 - **Anything else** — do not read a failed `worker start`, `worker stop` or
   `flow dispatch` as "this worker does not exist". Re-read `worker status`
   before concluding anything about the worker itself.

@@ -4,9 +4,9 @@
 force-attached).
 
 A thin **connector** plugin. It ships no skills, hooks, capabilities, or
-gates — its entire job is to wire two MCP services into the session so the agent
-can manage Linear tasks and discover its team / dispatch flows. The whole plugin
-is a single `plugin.yaml`:
+gates. Its entire job is to wire two MCP services into the session: Linear task
+management, and team discovery / flow dispatch. The whole plugin is a single
+`plugin.yaml`:
 
 ```yaml
 name: workers-collaboration
@@ -31,16 +31,16 @@ any credentials.
 | `linear-mcp` | [`mcp/linear-mcp.yaml`](../../mcp/linear-mcp.yaml) | Scoped Linear access via the internal MCP proxy (`linear-mcp-proxy`). The runner registers a per-task session (`task_id`, `task_identifier`, `team_id`, `scope_labels`) and writes the scoped token + `mcp_url` into the worker's `.mcp.json`. |
 | `team-mcp` | [`mcp/team-mcp.yaml`](../../mcp/team-mcp.yaml) | Team discovery and manual flow dispatch via the `flows` service. The runner registers a session with the worker's `role`, `task_id`, `visible_workers`, and `team_id`. |
 
-Because both are `internal`, the actual Linear API key (held by
-`linear-mcp-proxy`) and the flows dispatch surface never reach the worker
-directly — the agent only ever sees a short-lived, scoped session token.
+Both are `internal`. The actual Linear API key (held by `linear-mcp-proxy`) and
+the flows dispatch surface never reach the worker directly; the agent only ever
+sees a short-lived, scoped session token.
 
 ## Which role includes it
 
 The repo's **executive** role
 ([`roles/executive.yaml`](../../roles/executive.yaml)) lists
-`workers-collaboration` among its plugins — the executive PM agent manages
-projects, coordinates workers, and handles escalations, so it needs both Linear
+`workers-collaboration` among its plugins. The executive PM agent manages
+projects, coordinates workers, and handles escalations, and it uses both Linear
 task management and team discovery / dispatch. The **configurator** role does
 **not** include it.
 

@@ -235,16 +235,19 @@ repo-local `flows` CLI (`flows lint`, `flows reliability <task>`,
 `flows preview-skill <task>`) run via `Bash` from the repo root. Commits/pushes
 are handled by the runner-side git guards.
 
-The `twinkle` CLI is the platform-side half: the sandbox-testing tasks use it to
-spin up and grade throwaway test workers, and the system-model skill teaches the
-reads and writes that reconcile the repo against what the platform answers —
-`plugin list --workspace`, `role list --workspace`, `worker capabilities`,
-`library sync` (all `scope: 'worker'`) and `worker update` (`scope: 'admin'`).
-The `--workspace` flag is not optional on the two list commands: measured on a
-live stand, `plugin list` answered 6 plugins with no flag and 11 with
-`--workspace sandbox`, and `role list` answered `[]` with no flag and 2 with it.
-See `skills/system-model/SKILL.md` for the full entity model and for the three
-shapes an answer from the CLI can take.
+The `twinkle` CLI is the platform-side half. This plugin does not wire it — the
+runner mounts the binary into every worker container regardless of attached
+plugins; what this plugin adds is the skill that teaches it. The sandbox-testing
+tasks use it to spin up and grade throwaway test workers, and the system-model
+skill teaches the reads and writes that reconcile the repo against what the
+platform answers — `plugin list --workspace`, `role list --workspace`,
+`worker capabilities`, `library sync` (all `scope: 'worker'`) and
+`worker update` (`scope: 'admin'`). The `--workspace` flag is not optional on
+the two list commands: measured on a live stand, `plugin list` answered 6
+plugins with no flag and 11 with `--workspace sandbox`, and `role list` answered
+`[]` with no flag and 2 with it. See `skills/system-model/SKILL.md` for the full
+entity model and for the four shapes an answer from the CLI can take — the
+fourth being a `command not found` naming `twinkle`.
 
 ## Source notes
 

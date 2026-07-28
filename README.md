@@ -46,10 +46,16 @@ Five plugins, exported wholesale (`[exports] plugins = "*"`):
 | Plugin | Job | Wires |
 |---|---|---|
 | [`project-management`](plugins/project-management/README.md) | Executive PM agent — coordinates worker agents through Linear, manages project lifecycle, monitors health, reviews results, escalates blockers | `session.mcp: [linear-mcp]`; the `executive-overview` + `twinkle-executive-framework` skills; the `create-worker-task` + `defer-and-delegate` capabilities; 12 flows |
-| [`workers-configurator`](plugins/workers-configurator/README.md) | Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities) | the `twinkle` CLI (worker/task lifecycle); the `system-model` skill; 14 design/test capabilities; a SessionStart intro hook + a blocking PreToolUse `skills add` guard; the `design-agent` + `flow-creation` flows |
+| [`workers-configurator`](plugins/workers-configurator/README.md) | Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities) | the `system-model` skill; 14 design/test capabilities; a SessionStart intro hook + a blocking PreToolUse `skills add` guard; the `design-agent` + `flow-creation` flows |
 | [`telegram`](plugins/telegram/README.md) | Telegram inbox for receiving messages via MCP | `session.mcp: [telegram-inbox]` |
 | [`workers-collaboration`](plugins/workers-collaboration/README.md) | Linear task management + team discovery and flow dispatch | `session.mcp: [linear-mcp, team-mcp]` |
-| [`workers-orchestra`](plugins/workers-orchestra/README.md) | Workers lifecycle — create, start, stop workers, dispatch flows, list system state | the `worker-lifecycle` skill, over the `twinkle` CLI |
+| [`workers-orchestra`](plugins/workers-orchestra/README.md) | Workers lifecycle — start and stop workers, dispatch flows, list system state | the `worker-lifecycle` skill (which teaches the `twinkle` CLI's worker and flow commands) |
+
+No plugin in that table wires the `twinkle` CLI. The runner bind-mounts the
+binary into every worker container regardless of which plugins are attached;
+what these two plugins add is a skill that teaches the commands. Whether the
+command is present, and whether it is pointed at a deployment, are two separate
+questions their skills answer.
 
 ## Roles
 

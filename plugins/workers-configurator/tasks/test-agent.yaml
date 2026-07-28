@@ -14,9 +14,9 @@ hard_gates:
     rule: >
       `twinkle worker create` MUST carry an explicit `--git_repo` naming a
       sandbox repository that already exists. Omitted, the command can create a
-      REAL private GitHub repository, and nothing in this lane — not
-      `twinkle worker delete`, not any other command in this CLI — ever deletes
-      one. Do not run the command without that flag.
+      REAL private GitHub repository. `twinkle worker delete --help` prints that
+      a delete leaves the worker directory and its git repo on disk alone. Do
+      not run the command without that flag.
   - before: evaluate
     rule: "Task must have reached a terminal state (done, blocked, or failed) before evaluating. Do not evaluate an in-progress task."
   - before: cleanup
@@ -32,15 +32,17 @@ anti_rationalization:
     - thought: "The test task succeeded, so the agent is ready for production"
       reality: "One successful test is necessary but not sufficient. Inspect the produced artifacts: do the generated entity files have the expected structure, and does flows lint pass? A 'done' status with malformed or lint-failing entities is a failure."
     - thought: "I'll read the execution logs to check whether the agent skipped steps"
-      reality: "`twinkle run list --task_id <id> --limit 1` returns only the run row — measured on a live stand, its fields are status, started_at, completed_at, duration_seconds, input/output/cache tokens, cost_usd, summary, error, commit_before/after, flow_run_id, flow_name, machine. There is no JSONL behavioral trace in it, so you CANNOT read step-by-step behavior from this command. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read is a follow-up, not something this task can do."
+      reality: "`twinkle run list --task_id <id> --limit 1` returns only the run row — measured on a live stand, its fields are status, started_at, completed_at, duration_seconds, input/output/cache tokens, cost_usd, summary, error, commit_before/after, flow_run_id, flow_name, machine. There is no JSONL behavioral trace in it. Do not read step-by-step behavior out of this command. Grade on the artifacts the agent produced (entity files + flows-lint result) instead. A true behavioral-log read is a follow-up, not something this task can do."
     - thought: "Cleanup isn't important, I'll leave the test worker running"
       reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
     - thought: "`--git_repo` is optional — I'll let the platform pick one"
-      reality: "It is not optional here. With no `--git_repo` the command can create a real private GitHub repository, and nothing in this CLI removes it — not `twinkle worker delete`, not anything else. Every test-worker name you invent without the flag is one more repository nobody can delete, forever. Name an existing sandbox repo on every create."
+      reality: "It is not optional here — the hard gate on create-test-worker mandates it, and with no `--git_repo` the command can create a real private GitHub repository. Name an existing sandbox repo on every create."
     - thought: "`twinkle worker create` returned 403 — I'll retry, or find another flag"
-      reality: "A 403 with a JSON body is a scope answer, not a transient one. `worker create`, `worker delete` and `worker status` print `scope: admin` under `twinkle <group> <action> --help`. No retry and no flag changes it — see the 'Scope' section. Report it and stop; the configuration under test is not what failed."
+      reality: "A 403 with a JSON body is a scope answer, not a transient one. `worker create`, `worker delete`, `worker list` and `worker status` print `scope: admin` under `twinkle <group> <action> --help`. No retry and no flag changes it — see the 'Scope' section. Report it and stop; the configuration under test is not what failed."
     - thought: "`twinkle worker create` failed to connect — the deployment is down, retry it"
-      reality: "A connection error, or any message naming `http://localhost`, means the twinkle CLI is not pointed at a deployment on this machine — it does not mean the platform is down. Retrying cannot help, `twinkle auth login` cannot help, and inventing a `--url` cannot help. Report 'the twinkle CLI is unconfigured on this machine' and stop — see the 'Scope' section."
+      reality: "Read a connection error, or any message naming `http://localhost`, as 'the twinkle CLI is not pointed at a deployment on this machine' — never as 'the platform is down'. Retrying cannot help, `twinkle auth login` cannot help, and inventing a `--url` cannot help. Report 'the twinkle CLI is unconfigured on this machine' and stop — see the 'Scope' section."
+    - thought: "`twinkle: command not found` — the mount is broken, I'll install the CLI"
+      reality: "Measured in a shell with no such binary: `bash: twinkle: command not found`, exit status 127. There is no `twinkle` command on that machine. Do not install one, do not build one, and do not run `twinkle auth login`. Report 'there is no twinkle command on this machine' and stop — this lane needs the CLI end-to-end and cannot run without it."
 
 phases:
   prepare:
@@ -82,13 +84,15 @@ phases:
       - type: verify
         check: "`twinkle worker status <ws> test-<name>` — the worker exists in config"
         on_fail: >
-          Read the error and place it in one of the three answer shapes (Scope
+          Read the error and place it in one of the four answer shapes (Scope
           section). A **`403` with a JSON body** = scope — stop and report, do
           not retry. A **connection error, or any message naming
-          `http://localhost`**, = the twinkle CLI is unconfigured on this
-          machine — stop and report that; it is not fixable from here and a
-          retry cannot help. Only after ruling out both of those is the error
-          about the configuration under test and worth fixing and retrying.
+          `http://localhost`** = the twinkle CLI is unconfigured on this
+          machine — stop and report that; a retry cannot help. A **`command not
+          found` naming `twinkle`** = there is no CLI here — stop and report
+          that; do not install one. Only after ruling out all three is the
+          error about the configuration under test and worth fixing and
+          retrying.
     gate: "Test worker created and visible in config"
     next: create-test-task
 
@@ -145,7 +149,7 @@ phases:
             objective pass signal — lint failures are a hard fail.
           - result.md outputs. Verify the declared outputs are present and
             non-empty in the result frontmatter.
-        why: "`twinkle run list --task_id <id> --limit 1` returns only the run row (measured fields: status, started_at, completed_at, duration_seconds, tokens, cost_usd, summary, machine) — no JSONL behavioral trace. So we cannot read the agent's step-by-step reasoning from this task. We grade what we CAN verify objectively: the artifacts the agent left behind and whether they lint clean."
+        why: "`twinkle run list --task_id <id> --limit 1` returns only the run row (measured fields: status, started_at, completed_at, duration_seconds, tokens, cost_usd, summary, machine) — no JSONL behavioral trace. Do not grade the agent's step-by-step reasoning from this task. Grade what is objectively verifiable: the artifacts the agent left behind and whether they lint clean."
       - type: verify
         check: "flows lint --format=json over the produced entities returns [] (exit 0)"
         on_fail: "Record the lint findings as a test failure with the exact filepath:line diagnostics"
@@ -170,14 +174,13 @@ phases:
           `twinkle worker delete --help` and read it before you use the
           command: it prints that the call removes the worker's configuration
           in config-service and in the tracker, and deletes **the Linear label
-          the worker filed tasks under, so that label disappears from every
-          issue that carried it**; the worker directory and its git repository
-          are left alone, and workspace-keyed history and journal entries
-          survive. For a worker this run created moments ago under a `test-`
-          prefix that is proportionate — the label is one this run minted and
-          the only issues carrying it are this run's test tasks. For a worker
-          that already existed it is not: you would be stripping a label off
-          issues that are not yours.
+          the worker filed tasks under — the label disappears from every issue
+          that carried it**; the worker directory and its git repository are
+          left alone, and workspace-keyed history and journal entries survive.
+          For a worker this run created moments ago under a `test-` prefix, the
+          label is one this run minted and the only issues wearing it are this
+          run's test tasks. For a worker that already existed, the label is on
+          issues that are not yours — stop at `stop`.
       - type: write_result
         status: done
         summary: "Test {result}: {summary_of_findings}. Recommendations: {recommendations}"
@@ -185,7 +188,7 @@ phases:
     next: null
 
 sections:
-  - name: "Scope, and the three shapes an answer can take"
+  - name: "Scope, and the four shapes an answer can take"
     content: |
       This lane's commands, by the `scope:` line each one's `--help` prints:
 
@@ -193,6 +196,7 @@ sections:
       |---|---|
       | `twinkle worker create` | admin |
       | `twinkle worker delete` | admin |
+      | `twinkle worker list` | admin |
       | `twinkle worker status` | admin (its help prints `operation: worker.list`) |
       | `twinkle tracker worker-config` | admin |
       | `twinkle worker start`, `twinkle worker stop` | worker |
@@ -202,29 +206,34 @@ sections:
       Do not trust that table — `twinkle <group> <action> --help` prints the
       operation's `scope:` line, and that is the check.
 
-      **Every command comes back in one of three shapes, and this lane runs
+      **Every command comes back in one of four shapes, and this lane runs
       end-to-end only in the first:**
 
       1. **It answers.** Every command in the table is available and the lane
          runs.
       2. **`403` with a JSON body.** That is scope: no retry and no flag
-         changes it. `twinkle worker create`, the lane's first action, is one
-         of the admin-scoped commands that can come back this way — when it
-         does, the lane cannot start.
+         changes it. `twinkle worker list` and `twinkle worker create`, the
+         lane's first two actions, are both admin-scoped and can come back this
+         way — when they do, the lane cannot start.
       3. **A connection error, or any message naming `http://localhost`.** The
          twinkle CLI is not pointed at a deployment on this machine. A read
          warns on stderr first — measured verbatim: `twinkle: no --url,
          --profile, TWINKLE_URL or stored profile — reading from the default
          vhost http://localhost`.
+      4. **A `command not found` error naming `twinkle`.** Measured in a shell
+         with no such binary: `bash: twinkle: command not found`, exit status
+         127. There is no `twinkle` command on this machine. Do not install
+         one and do not build one.
 
-      In shape 3: **never run `twinkle auth login` and never invent a `--url`**,
-      however strongly the CLI's own error text suggests them. There is no
-      credential to log in with and no address you can supply that reaches the
-      platform. It is not a broken deployment and not a retryable failure. Say
-      "the twinkle CLI is unconfigured on this machine", record that this lane
-      cannot run here, and stop.
+      In shapes 3 and 4: **never run `twinkle auth login` and never invent a
+      `--url`**, however strongly the CLI's own error text suggests them. There
+      is no credential to log in with and no address you can supply that
+      reaches the platform. Neither shape is a broken deployment and neither is
+      a retryable failure. Say "the twinkle CLI is unconfigured on this
+      machine" (shape 3) or "there is no twinkle command on this machine"
+      (shape 4), record that this lane cannot run here, and stop.
 
-      In shapes 2 and 3 alike, what you record is a fact about where this
+      In shapes 2, 3 and 4 alike, what you record is a fact about where this
       session is running — never a defect in the configuration under test.
 
   - name: "What this meta-test CAN and CANNOT check"
@@ -239,13 +248,13 @@ sections:
       - The produced entities pass `flows lint` (objective, deterministic).
       - The declared `outputs` are present in result.md.
 
-      **CANNOT check (and why):**
+      **CANNOT check:**
       - The agent's step-by-step behavioral trace. `twinkle run list --task_id
         <id> --limit 1` returns only the run row — measured fields: status,
         started_at, completed_at, duration_seconds, input/output/cache tokens,
         cost_usd, summary, error, commit_before/after, flow_run_id, flow_name,
-        machine. No JSONL trace. So "did the agent skip a phase / rationalize a
-        shortcut?" is NOT answerable from this task. Do not pretend otherwise.
+        machine. No JSONL trace. Do not answer "did the agent skip a phase /
+        rationalize a shortcut?" from this task, and do not pretend otherwise.
 
       **Follow-up to enable behavioral grading:** a platform tool that exposes
       the execution trace is needed before a future revision of this task can

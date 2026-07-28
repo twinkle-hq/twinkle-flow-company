@@ -24,15 +24,31 @@ hard_gates:
     rule: >
       Every `twinkle worker create` in this lane MUST carry an explicit
       `--git_repo` naming a sandbox repository that already exists. Omitted, the
-      command can create a REAL private GitHub repository, and nothing here —
-      not `twinkle worker stop`, not `twinkle worker delete`, not any other
-      command in this CLI — ever deletes one. This lane creates a worker per
-      test case per arm, each under its own name, so an omitted flag is a
-      repository nobody can delete for every one of those names.
+      command can create a REAL private GitHub repository.
+      `twinkle worker delete --help` prints that a delete leaves the worker
+      directory and its git repo on disk alone. This lane creates a worker per
+      test case per arm — every one of those names needs the flag.
+  - before: run-tests
+    rule: >
+      Every `twinkle worker create` in this lane MUST also carry a
+      `--git_branch` unique to that test case AND that arm — e.g.
+      `iter-<N>-<case-id>-with-config` and `iter-<N>-<case-id>-baseline`. Run
+      `twinkle worker create --help` and confirm the flag is on the printed
+      list before you rely on it. If `--git_branch` is not on the printed list,
+      give each arm its own `--git_repo` instead; if neither is available, do
+      not run the lane — record that the two arms cannot be isolated here and
+      stop.
   - before: grade
     rule: >
       All test runs (both with-config and baseline) must have completed before
       grading. Do not grade partial results.
+  - before: grade
+    rule: >
+      Each arm's artifacts must have been collected from that arm's own branch,
+      and the branch each one came from must be recorded next to it. Two arms
+      whose artifacts share one branch are not a with/without comparison,
+      whatever the grades say. Where you cannot say which arm produced a file,
+      do not grade it — re-run the case on distinct branches.
   - before: improve
     rule: >
       Analysis must be complete before making improvements. Do not change
@@ -54,11 +70,15 @@ anti_rationalization:
     - thought: "Assertions are overkill for this, I can just eyeball the results"
       reality: "Assertions make evaluation repeatable and objective. Without them, you'll miss regressions in future iterations."
     - thought: "I'll leave `--git_repo` off the test workers — the platform will sort it out"
-      reality: "It can sort it out by CREATING a real private GitHub repository, and neither `twinkle worker stop` nor `twinkle worker delete` nor anything else in this CLI removes one. This lane invents a run-name per test case per arm, so every omitted flag is another repository nobody can ever delete. Name an existing sandbox repo on every create."
+      reality: "It is not optional here — the hard gate on run-tests mandates it, and with no `--git_repo` the command can create a real private GitHub repository. This lane invents a run-name per test case per arm; name an existing sandbox repo on every one of them."
+    - thought: "Both arms can share the sandbox repo's default branch — I'll tell the artifacts apart by their filenames"
+      reality: "The hard gate on run-tests mandates a distinct `--git_branch` per arm per case. Two arms whose artifacts share one branch are not a with/without comparison, and a benchmark computed over them compares one arm against itself. Give each arm its own branch and record which branch each artifact came from."
     - thought: "A `twinkle worker create` came back 403 — the test environment is flaky, retry"
-      reality: "A 403 with a JSON body is a scope answer, not a transient one. `worker create`, `worker delete`, `worker status` and `tracker worker-config` print `scope: admin` under `twinkle <group> <action> --help`. Retrying cannot change it — see the 'Scope' section, report it, and stop."
+      reality: "A 403 with a JSON body is a scope answer, not a transient one. `worker list`, `worker create`, `worker delete`, `worker status` and `tracker worker-config` print `scope: admin` under `twinkle <group> <action> --help`. Retrying cannot change it — see the 'Scope' section, report it, and stop."
     - thought: "`twinkle worker create` could not connect — the deployment is down, wait and retry"
-      reality: "A connection error, or any message naming `http://localhost`, means the twinkle CLI is not pointed at a deployment on this machine — it does not mean the platform is down. Retrying cannot help, `twinkle auth login` cannot help, and inventing a `--url` cannot help. Report 'the twinkle CLI is unconfigured on this machine' and stop — see the 'Scope' section."
+      reality: "Read a connection error, or any message naming `http://localhost`, as 'the twinkle CLI is not pointed at a deployment on this machine' — never as 'the platform is down'. Retrying cannot help, `twinkle auth login` cannot help, and inventing a `--url` cannot help. Report 'the twinkle CLI is unconfigured on this machine' and stop — see the 'Scope' section."
+    - thought: "`twinkle: command not found` — the mount is broken, I'll install the CLI"
+      reality: "Measured in a shell with no such binary: `bash: twinkle: command not found`, exit status 127. There is no `twinkle` command on that machine. Do not install one, do not build one, and do not run `twinkle auth login`. Report 'there is no twinkle command on this machine' and stop — this lane drives the CLI end to end and cannot run without it."
 
 phases:
   prepare-tests:
@@ -104,16 +124,20 @@ phases:
       - text: >
           For each run, three commands:
           `twinkle worker create <ws> <run-name> --git_repo <existing sandbox repo URL>
-          --plugins <p> [--plugins <p> ...]`,
+          --git_branch <iter-N-case-arm> --plugins <p> [--plugins <p> ...]`,
           then `twinkle task create --workspace <ws> --title <t> --description <test prompt>
           --labelIds <the run worker's label id, from twinkle tracker worker-config <ws> <run-name>>`,
           then `twinkle worker start <ws> <run-name>`.
         why: >
           `<ws>` and the worker name are POSITIONALS on `worker create` and
           `worker start` — neither takes a `--workspace` flag, and passing one
-          exits 2 with `Unknown option '--workspace'`. `--git_repo` is mandatory
-          (hard gate above). The baseline arm is the same three commands with
-          the configuration's plugins omitted (or the previous version's).
+          exits 2 with `Unknown option '--workspace'`. `--git_repo` and
+          `--git_branch` are both mandatory (hard gates above): the two arms of
+          one test case must not share a branch. Spell the branch so the case
+          and the arm are both in it —
+          `iter-2-login-flow-with-config` / `iter-2-login-flow-baseline`. The
+          baseline arm is the same three commands, on its own branch, with the
+          configuration's plugins omitted (or the previous version's).
       - "Set reasonable timeouts (10-15 minutes per test)"
       - "Save results to organized workspace: iteration-{N}/eval-{ID}/{with_config|baseline}/"
     gate: "All test runs launched (both with-config and baseline for each test case)"
@@ -153,10 +177,13 @@ phases:
           For each completed run, collect the gradeable ARTIFACTS:
           - `twinkle task get <task-id>` — terminal status + result.md summary + declared outputs
           - Glob/Read the entity files the run produced (the agent commits them
-            into its worker repo)
+            into its worker repo). Check out that run's `--git_branch` before
+            you read them, and record the branch name beside every artifact you
+            collect — the with-config and baseline arms of one case are two
+            different branches.
           - Run `flows lint --format=json` over the produced entities and capture
             the result (exit code + diagnostics)
-        why: "We grade on artifacts. `twinkle run list --task_id <id> --limit 1` returns only the run row (measured: status, timings, tokens, cost, summary) — no JSONL trace — so it cannot show HOW the agent worked. The produced entity files + their lint result are the objective evidence."
+        why: "We grade on artifacts. `twinkle run list --task_id <id> --limit 1` returns only the run row (measured: status, timings, tokens, cost, summary) — no JSONL trace. Do not look to it for HOW the agent worked. The produced entity files + their lint result are the objective evidence."
       - text: >
           `twinkle run list --task_id <id> --limit 1` is where the timing/token
           metrics are — measured on a live stand, a row carries
@@ -264,7 +291,7 @@ phases:
     next: null
 
 sections:
-  - name: "Scope, and the repo this lane must not create"
+  - name: "Scope, and the repo and branch this lane must name"
     content: |
       **Scope**, by the `scope:` line each command's `--help` prints:
 
@@ -272,6 +299,7 @@ sections:
       |---|---|
       | `twinkle worker create` | admin |
       | `twinkle worker delete` | admin |
+      | `twinkle worker list` | admin |
       | `twinkle worker status` | admin (its help prints `operation: worker.list`) |
       | `twinkle tracker worker-config` | admin |
       | `twinkle worker start`, `twinkle worker stop` | worker |
@@ -281,13 +309,14 @@ sections:
       `twinkle <group> <action> --help` prints the operation's `scope:` line —
       that is the check, not this table.
 
-      **Three shapes an answer can take**, and this lane runs end-to-end only in
+      **Four shapes an answer can take**, and this lane runs end-to-end only in
       the first:
 
       1. **It answers.** Every command above is available and the lane runs.
       2. **`403` with a JSON body.** That is scope: no retry and no flag
-         changes it. The first `twinkle worker create` is admin-scoped, so when
-         this is the shape, no test runs.
+         changes it. The lane opens with `twinkle worker list` and
+         `twinkle worker create`, both admin-scoped — in this shape, no test
+         runs.
       3. **A connection error, or any message naming `http://localhost`.** The
          twinkle CLI is not pointed at a deployment on this machine. A read
          warns on stderr first — measured verbatim: `twinkle: no --url,
@@ -296,20 +325,27 @@ sections:
          invent a `--url`**, however strongly the CLI's own error text suggests
          them: there is no credential to log in with and no address you can
          supply that reaches the platform.
+      4. **A `command not found` error naming `twinkle`.** Measured in a shell
+         with no such binary: `bash: twinkle: command not found`, exit status
+         127. There is no `twinkle` command on this machine. Do not install
+         one, do not build one, and do not run `twinkle auth login`.
 
-      In shapes 2 and 3 alike: record which one you are in and stop — it is a
-      fact about where this session runs, not about the configuration under
-      test. Retrying shape 3 as though the platform were broken is the specific
-      mistake this section exists to prevent.
+      In shapes 2, 3 and 4 alike: record which one you are in and stop — it is
+      a fact about where this session runs, not about the configuration under
+      test. Retrying shape 3 or shape 4 as though the platform were broken is
+      the specific mistake this section exists to prevent.
 
       **The repo.** `twinkle worker create` with no `--git_repo` can **create a
-      real private GitHub repository**. `twinkle worker delete` does not remove
-      it, and no command in this CLI does.
+      real private GitHub repository**. `twinkle worker delete --help` prints
+      that a delete leaves the worker directory and its git repo on disk alone.
+      Always pass `--git_repo` naming a sandbox repository that already exists
+      and is safe to reuse — on every one of the names this lane invents, one
+      per test case per arm.
 
-      That is not recoverable: every worker name you create without the flag is
-      one more repository nobody deletes, forever, and this lane invents a name
-      per test case per arm. Always pass `--git_repo` naming a sandbox
-      repository that already exists and is safe to reuse.
+      **The branch.** Every one of those creates also carries a `--git_branch`
+      unique to its test case AND its arm. Two arms whose artifacts share one
+      branch are not a with/without comparison, whatever the benchmark says.
+      Confirm the flag on `twinkle worker create --help` before you rely on it.
 
   - name: "Writing Good Assertions"
     content: |
@@ -349,19 +385,18 @@ sections:
 
   - name: "Grading boundary — artifacts, not behavioral logs"
     content: |
-      This evaluation grades on **artifacts**, because that is what the
-      configurator can actually verify repo-locally:
+      This evaluation grades on **artifacts** — the signals the configurator can
+      verify repo-locally:
 
       - **What is graded:** terminal status, the produced entity files and their
         structure, the `flows lint` result over those entities, and the declared
         outputs in result.md. These are objective and deterministic.
-      - **What is NOT graded (and why):** the agent's behavioral trace —
-        which phases it visited, whether it skipped a step or rationalized a
-        shortcut. `twinkle run list --task_id <id> --limit 1` returns only the
-        run row — measured on a live stand, its fields are status, timings,
-        tokens, cost, summary and machine, with no JSONL trace — so behavioral
-        assertions are not honestly checkable here. Do not write assertions
-        that pretend to check them.
+      - **What is NOT graded:** the agent's behavioral trace — which phases it
+        visited, whether it skipped a step or rationalized a shortcut.
+        `twinkle run list --task_id <id> --limit 1` returns only the run row —
+        measured on a live stand, its fields are status, timings, tokens, cost,
+        summary and machine, with no JSONL trace. Behavioral assertions are not
+        checkable here. Do not write assertions that pretend to check them.
       - **Follow-up for behavioral grading:** a platform tool that exposes the
         execution trace is the change that would let a future revision assert
         on actual phase transitions. Until then, artifact + lint grading is the

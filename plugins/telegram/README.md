@@ -1,9 +1,9 @@
 # telegram
 
 A thin **connector** plugin in the company tier. Its only job is to wire the
-**Telegram inbox** into a worker session so the agent can receive and process
-Telegram messages over MCP. It carries no flows, tasks, skills, capabilities,
-hooks, or gates — just a single `session.mcp` entry.
+**Telegram inbox** into a worker session, giving the agent Telegram messages
+over MCP. It carries no flows, tasks, skills, capabilities, hooks, or gates —
+just a single `session.mcp` entry.
 
 ```yaml
 # plugin.yaml
@@ -36,10 +36,10 @@ to a worker you attach it explicitly, by either:
 - **A role** — add `telegram` to a role's `plugins` list, then assign that role
   to the worker. **None of the bundled roles include it by default.** The two
   roles shipped in this repo — [`executive`](../../roles/executive.yaml) and
-  [`configurator`](../../roles/configurator.yaml) — do **not** list `telegram`,
-  so neither pulls it in automatically.
+  [`configurator`](../../roles/configurator.yaml) — do **not** list `telegram`.
+  Neither pulls it in automatically.
 - **The worker plugin list** — add `telegram` directly to the worker's `plugins`
   array in config-service.
 
-Either way, the company library must first be attached to the workspace
-(`workspace_libraries`) so the plugin source is part of the merged build view.
+Either way, attach the company library to the workspace (`workspace_libraries`)
+first. That attachment is what puts the plugin source in the merged build view.
