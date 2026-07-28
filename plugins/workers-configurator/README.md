@@ -30,7 +30,6 @@ From `plugin.yaml` `session`:
 
 | Field | Value | Purpose |
 |---|---|---|
-| `mcp` | `orchestra-api` | Worker/task lifecycle tools used by the sandbox-testing tasks (`create_worker`, `start_worker`, `stop_worker`, `get_worker_status`, `create_task`, `get_task_result`). `orchestra-api` is an Orchestra builtin (`connection_type: internal`) seeded into mcp-registry. |
 | `skills` | `skills/system-model/SKILL.md` | The single knowledge skill — the system model the agent must internalize before configuring anything (see below). |
 | `capabilities` | 14 tasks (listed below) | Process guides compiled into SKILL.md at session start, each activated by its `trigger`. |
 | `flows` | `design-agent`, `flow-creation` | The two owned DAGs. |
@@ -176,17 +175,18 @@ inspection.
   **artifact-based** assertions, grade the produced entity files + their
   `flows lint --format=json` result, aggregate a benchmark, and iterate. Adapted
   from the skill-creator evaluation cycle.
-- **`test-agent`** (medium) — single sandbox run via `orchestra-api`: create a
+- **`test-agent`** (medium) — single sandbox run via the `twinkle` CLI: create a
   test worker, assign a test task, run it, grade the produced **artifacts** (not
   the execution log), and clean up.
 
-> **Honest grading boundary** (documented in both test tasks): `get_task_logs`
-> returns only run **metrics** (tokens, cost, duration, status), **not** the JSONL
-> behavioral trace. So these tasks grade on what is repo-locally verifiable —
-> terminal status, produced entity files + their structure, the `flows lint`
-> result, and declared outputs — and explicitly do **not** assert "the agent
-> followed phases in order." Behavioral grading is named as a deferred follow-up
-> requiring a platform tool (the history-service `execution-logs` report).
+> **Honest grading boundary** (documented in both test tasks): `twinkle run
+> list --task_id <id> --limit 1` returns only run **metrics** (tokens, cost,
+> duration, status), **not** the JSONL behavioral trace. So these tasks grade on
+> what is repo-locally verifiable — terminal status, produced entity files +
+> their structure, the `flows lint` result, and declared outputs — and
+> explicitly do **not** assert "the agent followed phases in order." Behavioral
+> grading is named as a deferred follow-up requiring a platform tool (the
+> history-service `execution-logs` report).
 
 ### External-skill adaptation
 
@@ -232,7 +232,7 @@ The configurator has **no entity-management MCP server** — authoring is purely
 local: it edits YAML in its own git repo (its `git_repo`) and validates with the
 repo-local `flows` CLI (`flows lint`, `flows reliability <task>`,
 `flows preview-skill <task>`) run via `Bash` from the repo root. Commits/pushes
-are handled by the runner-side git guards. The `orchestra-api` MCP is used only
+are handled by the runner-side git guards. The `twinkle` CLI is used only
 by the sandbox-testing tasks to spin up and grade throwaway test workers. See
 `skills/system-model/SKILL.md` for the full entity model the agent works from.
 

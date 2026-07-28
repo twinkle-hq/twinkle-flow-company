@@ -3,10 +3,9 @@
 `tier: company` · per-workspace **library** plugin (attached to a workspace via
 the company library — **not** force-attached).
 
-A thin **connector** plugin: `plugin.yaml` only. It ships no skills, no
-capabilities, no hooks, and no flows. Its single job is to wire the
-**`orchestra-api`** MCP into the session so an agent can drive the worker
-lifecycle:
+A thin **connector** plugin: `plugin.yaml` only. It ships no capabilities, no
+hooks, and no flows — one skill. Its single job is to teach the agent the
+worker-lifecycle commands of the **`twinkle` CLI**:
 
 > *Workers lifecycle — create, start, stop workers, dispatch flows, list system
 > state.*
@@ -16,28 +15,33 @@ lifecycle:
 ```yaml
 # plugin.yaml
 session:
-  mcp:
-    - orchestra-api
+  skills:
+    - skills/worker-lifecycle/SKILL.md
 ```
 
-That one line adds the `orchestra-api` server to the session's `.mcp.json`,
-giving the agent tools to create/start/stop workers, dispatch flows, and list
-system state.
+That one line compiles
+[`skills/worker-lifecycle/SKILL.md`](skills/worker-lifecycle/SKILL.md) into the
+session's `SKILL.md`, teaching the agent to reach the platform through the
+`twinkle` CLI (already on `PATH`, already authenticated as the worker — no
+`twinkle auth login`) rather than through an MCP tool.
 
-### The `orchestra-api` MCP
+### The `worker-lifecycle` skill
 
-The MCP entity is defined in [`mcp/orchestra-api.yaml`](../../mcp/orchestra-api.yaml):
+Six commands, taken verbatim from the skill:
 
-- `connection_type: internal` — a **builtin-internal** provider, served by the
-  in-cluster `orchestra-mcp` service (`http://orchestra-mcp:4300`).
-- Registered **on-demand**: the runner registers a session against the
-  provider's `registration_endpoint` (`/register`, carrying `task_id`) and writes
-  the returned `token` into the worker's `.mcp.json` before the session starts.
-- `auth.type: internal_secret` — authenticated with the shared internal MCP
-  secret; no per-workspace OAuth or credentials are required.
+```bash
+twinkle worker list --workspace <ws>
+twinkle worker status <ws> <w>
+twinkle worker start <ws> <w>
+twinkle worker stop <ws> <w>
+twinkle flow list --workspace <ws>
+twinkle flow dispatch <name> --workspace <ws> --worker <w>
+```
 
-Because it is builtin-internal, the runner's MCP dispatch resolves and attaches
-it without an explicit per-workspace integration row.
+`worker start`/`worker stop` are fire-and-forget (a `202` means the command
+reached the bus, not that the worker has actually changed state — confirm with
+`worker status` afterward). There is no server-side workspace binding, so every
+invocation needs an explicit `--workspace`.
 
 ## Which role includes it
 

@@ -46,10 +46,10 @@ Five plugins, exported wholesale (`[exports] plugins = "*"`):
 | Plugin | Job | Wires |
 |---|---|---|
 | [`project-management`](plugins/project-management/README.md) | Executive PM agent — coordinates worker agents through Linear, manages project lifecycle, monitors health, reviews results, escalates blockers | `session.mcp: [linear-mcp]`; the `executive-overview` + `twinkle-executive-framework` skills; the `create-worker-task` + `defer-and-delegate` capabilities; 12 flows |
-| [`workers-configurator`](plugins/workers-configurator/README.md) | Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities) | `session.mcp: [orchestra-api]`; the `system-model` skill; 14 design/test capabilities; a SessionStart intro hook + a blocking PreToolUse `skills add` guard; the `design-agent` + `flow-creation` flows |
+| [`workers-configurator`](plugins/workers-configurator/README.md) | Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities) | the `twinkle` CLI (worker/task lifecycle); the `system-model` skill; 14 design/test capabilities; a SessionStart intro hook + a blocking PreToolUse `skills add` guard; the `design-agent` + `flow-creation` flows |
 | [`telegram`](plugins/telegram/README.md) | Telegram inbox for receiving messages via MCP | `session.mcp: [telegram-inbox]` |
 | [`workers-collaboration`](plugins/workers-collaboration/README.md) | Linear task management + team discovery and flow dispatch | `session.mcp: [linear-mcp, team-mcp]` |
-| [`workers-orchestra`](plugins/workers-orchestra/README.md) | Workers lifecycle — create, start, stop workers, dispatch flows, list system state | `session.mcp: [orchestra-api]` |
+| [`workers-orchestra`](plugins/workers-orchestra/README.md) | Workers lifecycle — create, start, stop workers, dispatch flows, list system state | the `worker-lifecycle` skill, over the `twinkle` CLI |
 
 ## Roles
 
@@ -90,7 +90,7 @@ elsewhere. (The dependency declaration does **not** silence the repo-local
 
 ## MCP connectors
 
-Four MCP connectors are declared under `mcp/`. All four are
+Three MCP connectors are declared under `mcp/`. All three are
 **`connection_type: internal`** builtin services wired **on-demand** — the runner
 registers a session against each one (using `auth.type: internal_secret`) only
 for the worker sessions whose attached plugins declare them in `session.mcp`, and
@@ -100,7 +100,6 @@ writes the resulting token URL into the worker's `.mcp.json`.
 |---|---|---|---|
 | [`linear-mcp`](mcp/linear-mcp.yaml) | `linear-mcp-proxy` | Scoped Linear access via the internal MCP proxy | `project-management`, `workers-collaboration` |
 | [`team-mcp`](mcp/team-mcp.yaml) | `flows` | Team discovery and manual flow dispatch | `workers-collaboration` |
-| [`orchestra-api`](mcp/orchestra-api.yaml) | `orchestra-mcp` | Worker management and task creation for configurator agents | `workers-configurator`, `workers-orchestra` |
 | [`telegram-inbox`](mcp/telegram-inbox.yaml) | `telegram-inbox` | Receive Telegram messages as MCP tool calls | `telegram` |
 
 ## How to attach
