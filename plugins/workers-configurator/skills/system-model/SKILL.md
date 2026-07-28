@@ -66,7 +66,7 @@ per_worker: true                       # default true for stdio
 
 ```yaml
 # internal — Orchestra core services. RESERVED + RUNTIME-SEEDED.
-# The five builtins (linear-mcp, journal-mcp, team-mcp, orchestra-api,
+# The four builtins (linear-mcp, journal-mcp, team-mcp,
 # telegram-inbox) are seeded directly into mcp-registry (the runtime source of
 # truth) — do not redeclare them in a library repo. Any mcp/*.yaml mirror in a
 # library repo is runtime-inert; keep it only as a cross-reference anchor for
@@ -420,7 +420,7 @@ Use these prefixes consistently. They enable UI grouping and make capabilities s
 - `workers-*` — worker collaboration/orchestration/config plugins (workers-collaboration, workers-orchestra, workers-configurator)
 - No prefix — domain-specific plugins (telegram, project-management)
 
-**MCP entity names** match their service name: `journal-mcp`, `linear-mcp`, `orchestra-api`, `telegram-inbox`.
+**MCP entity names** match their service name: `journal-mcp`, `linear-mcp`, `telegram-inbox`.
 
 ## Runner Assembly Process
 
@@ -453,9 +453,9 @@ You author entities by editing YAML files in the repo and validating them with t
 
 **Preview** — `flows preview-skill <task>`: render the SKILL.md the runner will compile from a task, so you can read what the agent will actually see.
 
-**orchestra-api** (MCP — worker/task operations):
-- `create_worker`, `start_worker`, `stop_worker`, `get_worker_status` — worker lifecycle
-- `create_task`, `get_task_result`, `get_task_logs` — task operations
+**twinkle** (CLI — worker/task operations):
+- `twinkle worker create`, `twinkle worker start`, `twinkle worker stop`, `twinkle worker status` — worker lifecycle
+- `twinkle task create`, `twinkle task get`, `twinkle run list` — task operations
 
 ## External Skills Marketplace
 
