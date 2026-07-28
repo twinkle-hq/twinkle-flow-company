@@ -27,38 +27,53 @@ session:
 That one line compiles
 [`skills/worker-lifecycle/SKILL.md`](skills/worker-lifecycle/SKILL.md) into the
 session's `SKILL.md`, teaching the agent to reach the platform through the
-`twinkle` CLI (already on `PATH`, already pointed at the deployment by the
-runner's `TWINKLE_URL` — no `twinkle auth login`) rather than through an MCP
-tool.
+`twinkle` CLI (already on `PATH`; whether it is also pointed at a deployment
+depends on how the machine is wired — never `twinkle auth login`) rather than
+through an MCP tool.
 
 ### The `worker-lifecycle` skill
 
-Six commands, taken verbatim from the skill:
+Eight commands, taken verbatim from the skill:
 
 ```bash
 twinkle worker list --workspace <ws>
 twinkle worker status <ws> <w>
 twinkle worker start <ws> <w>
 twinkle worker stop <ws> <w>
+twinkle worker capabilities <ws> <w>
 twinkle flow list --workspace <ws>
 twinkle flow dispatch <name> --workspace <ws> --worker <w>
+twinkle run list --workspace <ws> --worker <w> --limit <n>
 ```
 
 `worker start`/`worker stop` are fire-and-forget (a `202` means the command
 reached the bus, not that the worker has actually changed state — confirm with
 `worker status` afterward).
 
-Two details the skill spells out and this list cannot:
+Three details the skill spells out and this list cannot:
 
 - **The workspace is spelled two ways.** It is a positional on `worker
-  start`/`worker stop`/`worker status` and a `--workspace` flag on `worker
-  list`/`flow list`/`flow dispatch`. Adding that flag to `twinkle worker start`
-  exits 2. There is no server-side workspace binding, so the list commands
-  answer fleet-wide without the flag.
-- **Three of the six are `scope: 'admin'`** — `worker list`, `worker status`
-  (the same operation) and `flow dispatch`. On a deployment where the runner
-  points the CLI at the worker vhost, those answer `403` at the edge; on a
-  single-host deployment, where it points at the default vhost, all six work.
+  start`/`worker stop`/`worker status`/`worker capabilities` and a
+  `--workspace` flag on `worker list`/`flow list`/`run list`/`flow dispatch`.
+  Adding that flag to `twinkle worker start` exits 2. There is no server-side
+  workspace binding.
+- **Omitting `--workspace` is harmless on `worker list` and wrong on `flow
+  list`.** `worker list` without it answers fleet-wide. `flow list` without it
+  answers the force-attach SHARED view, and workspace flows arrive through an
+  attached library rather than force-attach — so it returns `[]` on a real
+  deployment, not a fleet-wide union. Always pass `--workspace` to `flow list`;
+  an empty answer without it means the flag was omitted, not that the workspace
+  has no flows.
+- **Three of the eight are `scope: 'admin'`** — `worker list`, `worker status`
+  (the same operation) and `flow dispatch` — and there are three deployment
+  states, not two. Single-host: the runner points the CLI at the default vhost
+  and everything works. Remote machine with `WORKER_API_URL` set: the worker
+  vhost, and the admin three answer `403`. Remote machine with `WORKER_API_URL`
+  unset — **the state a remote machine is in until an operator wires it** — the
+  runner configures nothing, the CLI falls back to `http://localhost` inside the
+  container, reads fail with a connection error and writes are refused
+  outright. The skill teaches the agent to read that third shape as "unwired,
+  report it" rather than as a broken platform to retry.
 
 ## Which role includes it
 

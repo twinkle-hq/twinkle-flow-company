@@ -453,34 +453,105 @@ You author entities by editing YAML files in the repo and validating them with t
 
 **Preview** — `flows preview-skill <task>`: render the SKILL.md the runner will compile from a task, so you can read what the agent will actually see.
 
-**twinkle** (CLI — worker/task operations). Already on `PATH`, and the runner
-has already pointed it at this deployment: it sets `TWINKLE_URL` in the
-container, and on a remote machine a `scope: 'worker'` token with it. Do not run
-`twinkle auth login`.
+**twinkle** (CLI — worker/task and platform-config operations). Already on
+`PATH`. Whether it is also POINTED at a deployment depends on how this machine
+is wired — see "Three deployments" below. Never run `twinkle auth login`.
 
 - `twinkle worker start <ws> <w>`, `twinkle worker stop <ws> <w>` — `scope: 'worker'`
 - `twinkle task create`, `twinkle task get <id>`, `twinkle run list` — `scope: 'worker'`
-- `twinkle worker create <ws> <w>`, `twinkle worker delete <ws> <w>`,
-  `twinkle worker status <ws> <w>`, `twinkle tracker worker-config <ws> <w>` —
-  **`scope: 'admin'`**
+- `twinkle plugin list --workspace <ws>`, `twinkle role list --workspace <ws>`,
+  `twinkle worker capabilities <ws> <w>`, `twinkle library sync <ws> <namespace>`
+  — `scope: 'worker'`
+- `twinkle worker create <ws> <w>`, `twinkle worker update <ws> <w>`,
+  `twinkle worker delete <ws> <w>`, `twinkle worker status <ws> <w>`,
+  `twinkle tracker worker-config <ws> <w>` — **`scope: 'admin'`**
 
-Two things to know before using the admin four:
+The four `scope: 'worker'` reads/writes on the third line are how you check the
+platform's view against the repo's, and they are the ones the configurator's job
+actually needs:
 
-1. **They can be refused.** Where the runner reaches the platform over the
-   network it points this CLI at the worker vhost with a `scope: 'worker'`
-   token, and that vhost admits only `scope: 'worker'` operations — the others
-   answer `403` at the edge. On a single-host deployment it points at the
-   default vhost, which has no auth subrequest, and all of them work. A `403`
-   is this session's scope, not a broken command: report it, do not retry.
+- **`twinkle plugin list --workspace <ws>` / `twinkle role list --workspace <ws>`**
+  — the plugins and roles the platform RESOLVED for that workspace, which is not
+  the same set as the files in your checkout: a plugin you authored but never
+  synced does not appear here. **The `--workspace` flag is not optional.**
+  Without it both commands answer the force-attach SHARED view, not a union —
+  measured on a live stand, `plugin list` with no flag returns only the 6
+  force-attached system/core plugins and `role list` with no flag returns 0.
+  An empty or short answer without the flag means you omitted the flag.
+- **`twinkle worker capabilities <ws> <w>`** — the flows and tasks that worker
+  can actually be asked to run, as resolved from its plugin list. This is the
+  verification counterpart of `twinkle worker update --plugins …`: configure,
+  sync, then read this back to confirm the platform sees what you wrote.
+- **`twinkle library sync <ws> <namespace>`** — pull the latest definitions for
+  one attached library into the platform. Run it after you commit and push
+  entity edits, or the platform keeps serving the previous commit.
+  `twinkle library list <ws>` gives you the namespaces.
+
+**`twinkle worker update <ws> <w>`** is the admin-scoped write for changing an
+existing worker — `--plugins` (repeatable), `--model`, `--machine`,
+`--visible_workers`, `--description` and the rest. It shares one route with
+`worker create` (`PUT /api/bff/workers/:ws/:w`), so a worker create against a
+name that already exists silently UPDATES that worker instead of refusing.
+Check the name is free before creating one.
+
+Three things to know before using the admin five:
+
+1. **They can be refused, and the refusal is not the only failure shape.** See
+   "Three deployments" immediately below — a `403` and a connection error mean
+   two different things, and only one of them is about scope.
 2. **`twinkle worker create` with no `--git_repo` creates a real private GitHub
    repository.** Where the BFF can resolve a GitHub token (the worker's
    `--github_token_id`, else the workspace's), it POSTs
    `https://api.github.com/user/repos` for a private, auto-init repo named
    `twinkle-<ws>-worker-<worker>` and stores its clone URL. Nothing — not
-   `twinkle worker delete`, not any other command here — ever deletes one.
-   (With no resolvable token it does not create: it refuses the whole call with
-   `400 NO_GIT_REPO`.) Always pass `--git_repo` naming a repository that
-   already exists.
+   `twinkle worker delete`, not any other command here — ever deletes one. The
+   name is deterministic, and a later create under the SAME name reuses the
+   existing repository (GitHub answers `422`, the handler looks it up), so the
+   count grows with distinct worker names rather than with runs — but no name
+   ever gives its repository back. (With no resolvable token it does not create:
+   it refuses the whole call with `400 NO_GIT_REPO`.) Always pass `--git_repo`
+   naming a repository that already exists.
+3. **`twinkle worker delete` reaches outside the platform's own config.** Its
+   `--help` states it: it removes the worker's configuration in config-service
+   AND in the tracker, and it deletes **the Linear label the worker filed tasks
+   under — so the label disappears from every issue that ever carried it**. The
+   worker directory, its git repo, and workspace-keyed history and journal
+   entries survive. Delete a worker you created; do not delete one you merely
+   found, because its label is on issues that are not yours.
+
+### Three deployments, three failure shapes
+
+`resolve_twinkle_env()` in `services/controllers/runner/runner.sh` has exactly
+three branches, and an error you cannot place in one of them you cannot
+diagnose.
+
+1. **Single-host** (`CORE_API_URL` empty) — the runner sets
+   `TWINKLE_URL=http://gateway`, the default vhost, which has no auth
+   subrequest. Everything above works, admin operations included.
+2. **Remote machine, CLI wired** (`CORE_API_URL` and `WORKER_API_URL` both set)
+   — the worker vhost plus a minted `scope: 'worker'` token. The admin
+   operations answer **`403` at the edge**, before reaching any service. That
+   is this session's scope, not a broken command and not a transient failure:
+   report it, do not retry, do not go looking for another flag.
+3. **Remote machine, CLI NOT wired** (`CORE_API_URL` set, `WORKER_API_URL`
+   empty) — the runner logs `WORKER_API_URL unset on a remote machine; the
+   twinkle CLI is mounted but unconfigured` and sets **nothing**: no URL, no
+   token. The CLI falls back to its compiled-in default `http://localhost`,
+   which inside this container is nothing at all. A read fails with a
+   **connection error** after warning on stderr that it is "reading from the
+   default vhost http://localhost"; a write is refused before any network call
+   with `no target named, and PUT … would go to the default vhost
+   http://localhost … Name it: --url <base>, --profile <name>, TWINKLE_URL, or
+   twinkle auth login`. **Do none of what that message suggests** — there is no
+   credential to log in with and no URL you can invent that reaches the
+   platform. This is the state a remote machine stays in until an operator adds
+   worker-vhost DNS and `WORKER_API_URL`, which no session can do. Report "the
+   twinkle CLI is unconfigured on this machine" and use the non-CLI path.
+
+A `403` with a JSON body is case 2 and means scope. A connection error, or any
+message naming `http://localhost`, is case 3 and means unwired. Retrying case 3
+as though the platform were broken is the misdiagnosis this section exists to
+prevent.
 
 `twinkle <group> <action> --help` prints the command's signature, its flag list
 and its `scope:` line. The flag list is derived from the serving handler and

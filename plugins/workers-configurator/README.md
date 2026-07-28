@@ -232,9 +232,17 @@ The configurator has **no entity-management MCP server** — authoring is purely
 local: it edits YAML in its own git repo (its `git_repo`) and validates with the
 repo-local `flows` CLI (`flows lint`, `flows reliability <task>`,
 `flows preview-skill <task>`) run via `Bash` from the repo root. Commits/pushes
-are handled by the runner-side git guards. The `twinkle` CLI is used only
-by the sandbox-testing tasks to spin up and grade throwaway test workers. See
-`skills/system-model/SKILL.md` for the full entity model the agent works from.
+are handled by the runner-side git guards.
+
+The `twinkle` CLI is the platform-side half: the sandbox-testing tasks use it to
+spin up and grade throwaway test workers, and the system-model skill teaches the
+reads and writes that reconcile the repo against what the platform actually
+resolved — `plugin list --workspace`, `role list --workspace`,
+`worker capabilities`, `library sync` (all `scope: 'worker'`) and
+`worker update` (`scope: 'admin'`). The `--workspace` flag is not optional on
+the two list commands: without it they answer the force-attach shared view, not
+a union. See `skills/system-model/SKILL.md` for the full entity model and for
+the three deployment states the CLI can be in.
 
 ## Source notes
 

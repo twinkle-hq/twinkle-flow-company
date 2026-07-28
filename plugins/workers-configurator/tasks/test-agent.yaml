@@ -37,9 +37,11 @@ anti_rationalization:
     - thought: "Cleanup isn't important, I'll leave the test worker running"
       reality: "Test workers consume resources. Always clean up. Leftover workers cause confusion in monitoring."
     - thought: "`--git_repo` is optional — I'll let the platform pick one"
-      reality: "It is not optional here. With no `--git_repo` the BFF resolves a GitHub token and, when it gets one, CREATES a real private repository named `twinkle-<ws>-worker-<name>`. `twinkle worker delete` removes the config row and the Linear label and does NOT remove that repository, so every sandbox run under a fresh test name leaks one forever. (With no resolvable token it creates nothing and refuses the call `400 NO_GIT_REPO` — a failed create either way.) Name an existing sandbox repo."
+      reality: "It is not optional here. With no `--git_repo` the BFF resolves a GitHub token and, when it gets one, CREATES a real private repository named `twinkle-<ws>-worker-<name>`. Nothing in this CLI removes it — `twinkle worker delete` deletes config rows and the Linear label, never the repository. The name is deterministic, so a later create under the SAME name reuses the existing repo (GitHub answers 422, the handler looks it up): the count grows with DISTINCT test-worker names, one apiece, not with runs. That is still one repository nobody can delete for every new name you invent. (With no resolvable token it creates nothing and refuses the call `400 NO_GIT_REPO` — a failed create either way.) Name an existing sandbox repo."
     - thought: "`twinkle worker create` returned 403 — I'll retry, or find another flag"
       reality: "403 from the worker vhost is a scope answer, not a transient one. `worker create`, `worker delete` and `worker status` are `scope: 'admin'` operations and the worker vhost admits only `scope: 'worker'` ones. No retry and no flag changes it — see the 'Scope' section. Report it and stop; the configuration under test is not what failed."
+    - thought: "`twinkle worker create` failed to connect — the deployment is down, retry it"
+      reality: "A connection error, or any message naming `http://localhost`, is the THIRD deployment case, not a down platform: on a remote machine with `WORKER_API_URL` unset the runner configures the CLI with nothing and it falls back to `http://localhost`, which inside this container is nothing at all. That is the state every remote machine is in until an operator wires the worker vhost. Retrying cannot help, `twinkle auth login` cannot help (there is no credential to log in with), and inventing a `--url` cannot help. Report 'the twinkle CLI is unconfigured on this machine' and stop — see the 'Scope' section."
 
 phases:
   prepare:
@@ -53,9 +55,21 @@ phases:
     next: create-test-worker
 
   create-test-worker:
-    tools: ["twinkle worker create", "twinkle worker status"]
+    tools: ["twinkle worker list", "twinkle worker create", "twinkle worker status"]
     goal: "Create a temporary test worker with the target configuration"
     actions:
+      - text: >
+          First confirm the name is FREE — `twinkle worker list --workspace <ws>`
+          and check `test-<name>` is not already there. If it is, pick another
+          name.
+        why: >
+          `worker create` and `worker update` share one route
+          (`PUT /api/bff/workers/:ws/:w`), so a create against an existing name
+          does not refuse: it silently UPDATES that worker with the plugin list
+          you passed. Colliding with a real worker means you reconfigured it,
+          and the cleanup phase would then delete it and its Linear label.
+          Record in the result that this phase created the worker — cleanup
+          depends on knowing that.
       - text: >
           `twinkle worker create <ws> test-<name> --git_repo <existing sandbox repo URL>
           --plugins <p> [--plugins <p> ...]` — a test-prefixed worker name and the
@@ -69,9 +83,13 @@ phases:
       - type: verify
         check: "`twinkle worker status <ws> test-<name>` — the worker exists in config"
         on_fail: >
-          Read the error. `403` means the vhost refused the SCOPE (see the Scope
-          section) — stop and report, do not retry. Anything else: fix the
-          configuration and retry.
+          Read the error and place it in one of the three deployment cases
+          (Scope section). `403` = the vhost refused the SCOPE — stop and
+          report, do not retry. A **connection error, or any message naming
+          `http://localhost`**, = the twinkle CLI is unconfigured on this
+          machine — stop and report that; it is not fixable from here and a
+          retry cannot help. Only after ruling out both of those is the error
+          about the configuration under test and worth fixing and retrying.
     gate: "Test worker created and visible in config"
     next: create-test-task
 
@@ -148,14 +166,26 @@ phases:
     actions:
       - "`twinkle worker stop <ws> test-<name>` — stop the test worker"
       - text: >
-          `twinkle worker delete <ws> test-<name>` — remove the worker row and
-          its Linear label, so a stopped-but-present test worker does not
-          accumulate in config.
+          `twinkle worker delete <ws> test-<name>` — ONLY if the create phase
+          established the name was free and created the worker itself. If you
+          reused a worker that already existed, stop here: `stop` is the whole
+          of your cleanup.
         why: >
-          `stop` alone deletes nothing. `delete` removes the config row and the
-          label — and NOT the git repository, which is exactly why the create
-          phase must name an existing sandbox repo rather than let one be
-          auto-created.
+          `stop` alone deletes nothing, so a stopped-but-present test worker
+          accumulates in config — that is why delete is here. But delete is a
+          destructive step this lane did not used to have, and its blast radius
+          reaches outside the platform's own config. Its `--help` states it:
+          it removes the worker's configuration in config-service AND in the
+          tracker, and it deletes **the Linear label the worker filed tasks
+          under, so that label disappears from every issue that ever carried
+          it**. For a worker this run created moments ago under a `test-`
+          prefix that is proportionate — the label is one this run minted and
+          the only issues carrying it are this run's test tasks. For a worker
+          that already existed it is not: you would be stripping a label off
+          issues that are not yours. What delete does NOT touch: the worker
+          directory, its git repository (which is exactly why the create phase
+          must name an existing sandbox repo rather than let one be
+          auto-created), and workspace-keyed history and journal entries.
       - type: write_result
         status: done
         summary: "Test {result}: {summary_of_findings}. Recommendations: {recommendations}"
@@ -163,7 +193,7 @@ phases:
     next: null
 
 sections:
-  - name: "Scope — half of this lane needs an admin token"
+  - name: "Scope, and where this CLI is pointed — three deployments"
     content: |
       The `twinkle` CLI in a worker session is authenticated **as this worker**.
       Where the runner reaches the platform over the network it points the CLI
@@ -189,14 +219,41 @@ sections:
       `scope: admin` under `operation: worker.list`, which is the same fact
       spelled through the alias.)
 
-      **Consequence.** This lane runs end-to-end only where the CLI is pointed
-      at a vhost that accepts an admin-scoped token: a single-host deployment
-      (the runner sets `TWINKLE_URL=http://gateway`, the default vhost, which
-      has no auth subrequest), or a session explicitly given an admin profile.
-      On a remote machine `twinkle worker create` — the lane's first action —
-      answers 403 and the lane cannot start. That is a deployment fact about
-      where this session is running, not a defect in the configuration under
-      test: record it in the result and stop.
+      **Consequence — and there are THREE deployments, not two.**
+      `resolve_twinkle_env()` in `services/controllers/runner/runner.sh` has
+      exactly three branches, and this lane only runs end-to-end in the first:
+
+      1. **Single-host** (`CORE_API_URL` empty) — the runner sets
+         `TWINKLE_URL=http://gateway`, the default vhost, which has no auth
+         subrequest. Every command in the table works and the lane runs.
+      2. **Remote machine, CLI wired** (`CORE_API_URL` and `WORKER_API_URL`
+         both set) — the worker vhost plus a minted `scope: 'worker'` token.
+         `twinkle worker create`, the lane's first action, answers **403** and
+         the lane cannot start. That is scope: no retry and no flag changes it.
+      3. **Remote machine, CLI NOT wired** (`CORE_API_URL` set,
+         `WORKER_API_URL` empty) — the runner logs `WORKER_API_URL unset on a
+         remote machine; the twinkle CLI is mounted but unconfigured` and emits
+         **nothing at all**: no URL, no token. The CLI falls back to its
+         compiled-in default `http://localhost`, which inside this container is
+         nothing. A read fails with a **connection error** after warning on
+         stderr that it is "reading from the default vhost http://localhost";
+         a write is refused before any network call with `no target named, and
+         PUT … would go to the default vhost http://localhost … Name it: --url
+         <base>, --profile <name>, TWINKLE_URL, or twinkle auth login`.
+
+      **Case 3 is the state a remote machine is in until an operator adds
+      worker-vhost DNS and `WORKER_API_URL` — an operator-only change no
+      session can make.** Do none of what its error message suggests: there is
+      no credential to log in with and no URL you can invent that reaches the
+      platform. It is not a broken deployment and not a retryable failure. Say
+      "the twinkle CLI is unconfigured on this machine", record that this lane
+      cannot run here, and stop.
+
+      Reading the three apart is the point: a **403 with a JSON body** is case 2
+      and means scope; a **connection error, or any message naming
+      `http://localhost`**, is case 3 and means unwired; anything that answers
+      is case 1. In cases 2 and 3 alike, what you record is a fact about where
+      this session is running — never a defect in the configuration under test.
 
   - name: "What this meta-test CAN and CANNOT check"
     content: |

@@ -27,8 +27,12 @@ hard_gates:
       wherever the BFF can resolve a GitHub token, the handler auto-creates a
       REAL private GitHub repository named `twinkle-<ws>-worker-<name>`, and
       nothing here — `twinkle worker stop`, `twinkle worker delete` — ever
-      deletes one. This lane creates a worker per test case per arm, each under
-      its own name, so an omitted flag leaks a repo per run, multiplied.
+      deletes one. The name is deterministic and a create under an existing name
+      REUSES that repo rather than making a second, so the leak is one repository
+      per DISTINCT worker name, once — not one per run. This lane creates a
+      worker per test case per arm, each under its own name, so an omitted flag
+      is up to 2N repositories nobody can delete, plus one more for every new
+      name you invent afterwards.
   - before: grade
     rule: >
       All test runs (both with-config and baseline) must have completed before
@@ -54,9 +58,11 @@ anti_rationalization:
     - thought: "Assertions are overkill for this, I can just eyeball the results"
       reality: "Assertions make evaluation repeatable and objective. Without them, you'll miss regressions in future iterations."
     - thought: "I'll leave `--git_repo` off the test workers — the platform will sort it out"
-      reality: "Where it can resolve a GitHub token it sorts it out by CREATING a real private GitHub repository named `twinkle-<ws>-worker-<name>`, and neither `twinkle worker stop` nor `twinkle worker delete` removes one. This lane creates a worker per test case per arm, each under its own name, so that is a repo leak multiplied by the suite size. (With no resolvable token nothing is created and the call is refused `400 NO_GIT_REPO` — a failed create either way.) Name an existing sandbox repo on every create."
+      reality: "Where it can resolve a GitHub token it sorts it out by CREATING a real private GitHub repository named `twinkle-<ws>-worker-<name>`, and neither `twinkle worker stop` nor `twinkle worker delete` removes one. The name is deterministic and a create under an existing name reuses that repo (GitHub answers 422, the handler looks it up), so it is one repository per DISTINCT run-name, once — up to 2N for an N-case two-arm suite on its first pass, and none added by re-running the same names. That is a smaller number than 'one per run' and still one nobody can ever delete. (With no resolvable token nothing is created and the call is refused `400 NO_GIT_REPO` — a failed create either way.) Name an existing sandbox repo on every create."
     - thought: "A `twinkle worker create` came back 403 — the test environment is flaky, retry"
       reality: "403 from the worker vhost is a scope answer, not a transient one. `worker create`, `worker delete`, `worker status` and `tracker worker-config` are `scope: 'admin'` and the worker vhost admits only `scope: 'worker'`. Retrying cannot change it — see the 'Scope' section, report it, and stop."
+    - thought: "`twinkle worker create` could not connect — the deployment is down, wait and retry"
+      reality: "A connection error, or any message naming `http://localhost`, is the THIRD deployment case, not a down platform: on a remote machine with `WORKER_API_URL` unset the runner configures the CLI with nothing and it falls back to `http://localhost`, which inside this container is nothing at all. That is the state a remote machine stays in until an operator wires the worker vhost. Retrying cannot help, `twinkle auth login` cannot help (there is no credential to log in with), and inventing a `--url` cannot help. Report 'the twinkle CLI is unconfigured on this machine' and stop — see the 'Scope' section."
 
 phases:
   prepare-tests:
@@ -77,7 +83,7 @@ phases:
     next: run-tests
 
   run-tests:
-    tools: ["twinkle worker create", "twinkle worker start", "twinkle task create", "twinkle tracker worker-config"]
+    tools: ["twinkle worker list", "twinkle worker create", "twinkle worker start", "twinkle task create", "twinkle tracker worker-config"]
     goal: "Execute test cases with configuration and baseline in parallel"
     actions:
       - text: >
@@ -86,6 +92,18 @@ phases:
           2. Baseline: worker without the configuration (or with previous version)
           Launch all runs at once — don't wait for one to finish before starting the next.
         why: "Parallel execution saves time. With/without comparison is essential to prove the configuration adds value."
+      - text: >
+          First, list what already exists: `twinkle worker list --workspace <ws>`.
+          Every run-name you are about to create must be absent from it. Where
+          one is taken, pick a different run-name, and note which names this run
+          actually created — the cleanup in `collect-results` deletes only
+          those.
+        why: >
+          `worker create` and `worker update` share one route
+          (`PUT /api/bff/workers/:ws/:w`), so a create against an existing name
+          does not refuse: it silently UPDATES that worker with the plugins you
+          passed. Colliding with a real worker means you reconfigured it, and
+          the cleanup step would then delete it along with its Linear label.
       - text: >
           For each run, three commands:
           `twinkle worker create <ws> <run-name> --git_repo <existing sandbox repo URL>
@@ -151,12 +169,24 @@ phases:
           and it is the run row only — never the JSONL behavioural trace.
       - "Save results, produced entities, lint output, and timing data to workspace directories"
       - text: >
-          Clean up every test worker: `twinkle worker stop <ws> <run-name>` then
-          `twinkle worker delete <ws> <run-name>`.
+          Clean up every test worker: `twinkle worker stop <ws> <run-name>`,
+          then `twinkle worker delete <ws> <run-name>` for each worker THIS run
+          created. A run-name that was already taken when you created it was
+          reconfigured rather than created — stop that one and leave it.
         why: >
-          `stop` deletes nothing; `delete` removes the config row and the Linear
-          label. Neither removes the git repository — which is why every create
-          named an existing sandbox repo instead of letting one be made.
+          `stop` deletes nothing, so without delete every iteration leaves
+          another stopped worker in config. But delete is destructive beyond
+          this lane's own sandbox, and its `--help` says how far: it removes the
+          worker's configuration in config-service AND in the tracker, and it
+          deletes **the Linear label the worker filed tasks under — which
+          removes that label from every issue that ever carried it**. For a
+          worker this run created under its own run-name that is proportionate;
+          the label is one this run minted and the only issues wearing it are
+          this run's test tasks. For a worker that already existed it is not.
+          Delete removes neither the worker directory nor its git repository —
+          which is why every create named an existing sandbox repo instead of
+          letting one be made — and workspace-keyed history and journal entries
+          survive it.
     gate: "All artifacts collected (status, entity files, lint result, metrics), all test workers cleaned up"
     next: grade
 
@@ -254,26 +284,61 @@ sections:
       | `twinkle run list` | worker | works |
 
       `twinkle <group> <action> --help` prints the operation's `scope:` line —
-      that is the check, not this table. This lane therefore runs end-to-end
-      only where the CLI is pointed at a vhost that accepts an admin-scoped
-      token: a single-host deployment (the runner sets
-      `TWINKLE_URL=http://gateway`, the default vhost, which has no auth
-      subrequest) or a session explicitly given an admin profile. On a remote
-      machine the first `twinkle worker create` answers 403 and no test runs.
-      Record that and stop — it is a fact about where this session runs, not
-      about the configuration under test.
+      that is the check, not this table.
+
+      **Three deployments, not two.** `resolve_twinkle_env()` in
+      `services/controllers/runner/runner.sh` has exactly three branches, and
+      this lane runs end-to-end only in the first:
+
+      1. **Single-host** (`CORE_API_URL` empty) — the runner sets
+         `TWINKLE_URL=http://gateway`, the default vhost, which has no auth
+         subrequest. Every command above works and the lane runs.
+      2. **Remote machine, CLI wired** (`CORE_API_URL` and `WORKER_API_URL`
+         both set) — the worker vhost plus a minted `scope: 'worker'` token.
+         The first `twinkle worker create` answers **403** and no test runs.
+         That is scope: no retry and no flag changes it.
+      3. **Remote machine, CLI NOT wired** (`CORE_API_URL` set,
+         `WORKER_API_URL` empty) — the runner logs `WORKER_API_URL unset on a
+         remote machine; the twinkle CLI is mounted but unconfigured` and emits
+         **nothing**: no URL, no token. The CLI falls back to its compiled-in
+         default `http://localhost`, which inside this container is nothing at
+         all. Reads fail with a **connection error** after a stderr warning
+         naming that host; writes are refused before any network call with `no
+         target named, and PUT … would go to the default vhost
+         http://localhost … Name it: --url <base>, --profile <name>,
+         TWINKLE_URL, or twinkle auth login`. **Do none of what that message
+         suggests** — there is no credential to log in with and no URL you can
+         invent that reaches the platform. Case 3 is where a remote machine
+         stays until an operator adds worker-vhost DNS and `WORKER_API_URL`,
+         which no session can do.
+
+      A **403 with a JSON body** is case 2 and means scope. A **connection
+      error, or any message naming `http://localhost`**, is case 3 and means
+      the CLI is unconfigured on this machine. Anything that answers is case 1.
+      In cases 2 and 3 alike: record which one you are in and stop — it is a
+      fact about where this session runs, not about the configuration under
+      test. Retrying case 3 as though the platform were broken is the specific
+      mistake this section exists to prevent.
 
       **The repo.** `twinkle worker create` with no `--git_repo` makes the BFF
       resolve a GitHub token — the worker's `--github_token_id`, else the
       workspace's — and, when it gets one, **create a real private GitHub
       repository** named `twinkle-<ws>-worker-<name>`. `twinkle worker delete`
-      removes the config row and the Linear label; it does not remove that
-      repository, and no command in this CLI does. A suite of N test cases run
-      in two arms, each under its own worker name, is 2N leaked repositories
-      per iteration. (Where no token resolves nothing is created and the create
-      is refused outright, `400 NO_GIT_REPO` — so omitting the flag either
-      leaks or fails, never works.) Always pass `--git_repo` naming a sandbox
-      repository that already exists and is safe to reuse.
+      does not remove that repository, and no command in this CLI does.
+
+      Get the arithmetic right, because the wrong number invites the wrong
+      response. The name is DETERMINISTIC, and the handler reuses an existing
+      repository rather than creating a second one: GitHub answers `422`, the
+      handler looks the repo up by name and returns its clone URL. So the leak
+      is **one repository per distinct worker name, once** — a suite of N test
+      cases in two arms is up to 2N repositories on its first pass, and
+      re-running the SAME names on later iterations adds none. It is not 2N per
+      iteration. It is also not recoverable: every new name is one more
+      repository nobody deletes, forever. (Where no token resolves nothing is
+      created and the create is refused outright, `400 NO_GIT_REPO` — so
+      omitting the flag either leaks or fails, never works.) Always pass
+      `--git_repo` naming a sandbox repository that already exists and is safe
+      to reuse.
 
   - name: "Writing Good Assertions"
     content: |
