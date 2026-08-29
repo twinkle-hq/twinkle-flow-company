@@ -41,7 +41,29 @@ Two things in `feedback[]` are not a person talking to you:
 
 **On `status: done`, your `summary` IS the message.** It is posted to the task
 and delivered to the thread verbatim — nobody edits it, summarises it, or wraps
-it in anything. Write it as a reply to a person:
+it in anything.
+
+**Nothing reads the markdown body under the fence.** The answer goes in
+`summary` itself. Putting the answer in the body and a description of it in
+`summary` — "a detailed answer to your question, with a list of what I can do" —
+sends them the description and throws the answer away. They receive a sentence
+about a message they never get.
+
+A reply is usually several sentences, so write it as a YAML block:
+
+```yaml
+---
+status: done
+summary: >
+  Задеплоил на стейджинг, миграции прошли, тесты зелёные.
+  В прод пока не катил — скажи, когда можно.
+---
+```
+
+`>` folds the lines into a paragraph; `|` keeps the line breaks. Both deliver
+the whole block.
+
+Write it as a reply to a person:
 
 - Answer what they actually asked, first. Not what you did first.
 - Second person. "I've moved the deploy to Friday" — not "The deploy has been
