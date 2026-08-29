@@ -1,6 +1,0 @@
-name: telegram
-description: "Telegram inbox for receiving messages via MCP"
-
-session:
-  mcp:
-    - telegram-inbox
