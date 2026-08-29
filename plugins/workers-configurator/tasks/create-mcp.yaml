@@ -60,7 +60,7 @@ phases:
             use OAuth (handled by Nango)?
           - If local: does the image expose HTTP natively, or does it speak stdio?
           - Is it one of the Orchestra builtins (linear-mcp, journal-mcp,
-            team-mcp, telegram-inbox)?
+            team-mcp)?
     gate: "No duplicate found; clear answer to every question above"
     next: pick-connection-type
 

@@ -66,8 +66,8 @@ per_worker: true                       # default true for stdio
 
 ```yaml
 # internal — Orchestra core services. RESERVED + RUNTIME-SEEDED.
-# The four builtins (linear-mcp, journal-mcp, team-mcp,
-# telegram-inbox) are seeded directly into mcp-registry (the runtime source of
+# The three builtins (linear-mcp, journal-mcp, team-mcp) are seeded
+# directly into mcp-registry (the runtime source of
 # truth) — do not redeclare them in a library repo. Any mcp/*.yaml mirror in a
 # library repo is runtime-inert; keep it only as a cross-reference anchor for
 # session.mcp lint checks.
@@ -419,9 +419,10 @@ Use these prefixes consistently. They enable UI grouping and make capabilities s
 - `system-*` — always-attached system plugins (system-result, system-autocommit, system-kick-start)
 - `core-*` — optional core plugins (core-state, core-memory, core-summary)
 - `workers-*` — worker collaboration/orchestration/config plugins (workers-collaboration, workers-orchestra, workers-configurator)
-- No prefix — domain-specific plugins (telegram, project-management)
+- No prefix — domain-specific plugins (telegram-chat, project-management)
 
-**MCP entity names** match their service name: `journal-mcp`, `linear-mcp`, `telegram-inbox`.
+**MCP entity names** match their service name: `journal-mcp`, `linear-mcp`, `team-mcp`. Not every
+service has one: `telegram-chat` is reached through the task, not through MCP, so it has no entity.
 
 ## Runner Assembly Process
 
