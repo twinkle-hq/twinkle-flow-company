@@ -360,9 +360,9 @@ as benign, and suppress it in `.flows-lint.yaml` rather than editing the ref.
 
 2. **Force-attach** (admin-global — injected into every worker session of every
    workspace, independent of attached libraries). Two tiers:
-   - **system tier** (`twinkle-flow-system`: `system-result`,
-     `system-autocommit`, `system-kick-start`) — **locked**: non-removable, every
-     plugin always on. The platform cannot run without these.
+   - **system tier** (`twinkle-flow-system`: `system-autocommit`,
+     `system-kick-start`) — **locked**: non-removable, every plugin always on.
+     The platform cannot run without these.
    - **core tier** (`twinkle-flow-core`: `core-state`, `core-memory`,
      `core-summary`) — default-on but **toggleable** per plugin.
 
@@ -416,10 +416,10 @@ All entity names use kebab-case (lowercase + hyphens): `create-plugin`, `review-
 Use these prefixes consistently. They enable UI grouping and make capabilities scannable.
 
 **Plugin prefixes:**
-- `system-*` — always-attached system plugins (system-result, system-autocommit, system-kick-start)
+- `system-*` — always-attached system plugins (system-autocommit, system-kick-start)
 - `core-*` — optional core plugins (core-state, core-memory, core-summary)
 - `workers-*` — worker collaboration/orchestration/config plugins (workers-collaboration, workers-orchestra, workers-configurator)
-- No prefix — domain-specific plugins (telegram-chat, project-management)
+- No prefix — domain-specific plugins (project-management)
 
 **MCP entity names** match their service name: `journal-mcp`, `linear-mcp`, `team-mcp`. Not every
 service has one: `telegram-chat` is reached through the task, not through MCP, so it has no entity.
@@ -481,7 +481,8 @@ actually needs:
   the same set as the files in your checkout. **The `--workspace` flag is not
   optional.** Measured on a live stand: `plugin list` with no flag answered 6
   plugins (`core-memory`, `core-state`, `core-summary`, `system-autocommit`,
-  `system-kick-start`, `system-result`), and with `--workspace sandbox` answered
+  `system-kick-start`, and `system-result`, which has since been deleted), and
+  with `--workspace sandbox` answered
   11; `role list` with no flag answered `[]`, and with `--workspace sandbox`
   answered 2. Read an empty or short answer that came back without the flag as
   "the flag was omitted", and re-run the command with `--workspace` before you

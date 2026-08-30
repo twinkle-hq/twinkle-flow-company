@@ -47,7 +47,6 @@ Five plugins, exported wholesale (`[exports] plugins = "*"`):
 |---|---|---|
 | [`project-management`](plugins/project-management/README.md) | Executive PM agent — coordinates worker agents through Linear, manages project lifecycle, monitors health, reviews results, escalates blockers | `session.mcp: [linear-mcp]`; the `executive-overview` + `twinkle-executive-framework` skills; the `create-worker-task` + `defer-and-delegate` capabilities; 12 flows |
 | [`workers-configurator`](plugins/workers-configurator/README.md) | Create, validate, review, and test Orchestra agent configurations (plugins, roles, flows, tasks, MCP entities) | the `system-model` skill; 14 design/test capabilities; a SessionStart intro hook + a blocking PreToolUse `skills add` guard; the `design-agent` + `flow-creation` flows |
-| [`telegram-chat`](plugins/telegram-chat/README.md) | Tells the agent the task is a Telegram conversation, so the session result reads as a reply to a person rather than a work report | the `telegram-conversation` skill — **no MCP** |
 | [`workers-collaboration`](plugins/workers-collaboration/README.md) | Linear task management + team discovery and flow dispatch | `session.mcp: [linear-mcp, team-mcp]` |
 | [`workers-orchestra`](plugins/workers-orchestra/README.md) | Workers lifecycle — start and stop workers, dispatch flows, list system state | the `worker-lifecycle` skill (which teaches the `twinkle` CLI's worker and flow commands) |
 
@@ -108,8 +107,14 @@ writes the resulting token URL into the worker's `.mcp.json`.
 
 Telegram is not among them, and that is deliberate: the platform's
 `telegram-chat` service binds a Telegram thread to a Linear task, so the
-conversation arrives in `context.json` and the reply leaves in `result.md`. The
-[`telegram-chat`](plugins/telegram-chat/README.md) plugin wires no MCP at all.
+conversation arrives in `context.json` and the reply leaves in `result.md`.
+There is no Telegram plugin either — the `telegram-chat` plugin that used to sit
+in this table was deleted on 2026-08-30, because everything it asked for is now
+either enforced by the result contract (`lib/protocol/result-contract.json` in
+`twinkle-hq/twinkle`: a `message` is required on every status, and `asks` on
+every escalation) or stated in the skill the runner generates from it. A worker
+with a bot and without the plugin was the configuration that produced the
+defect; there is nothing left to forget to attach.
 
 ## How to attach
 

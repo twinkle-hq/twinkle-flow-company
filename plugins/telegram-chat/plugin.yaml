@@ -1,6 +1,0 @@
-name: telegram-chat
-description: "The task is a Telegram conversation — the session result is read by a person, not filed as a report"
-
-session:
-  skills:
-    - skills/telegram-conversation/SKILL.md
