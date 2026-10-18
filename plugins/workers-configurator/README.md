@@ -38,12 +38,17 @@ From `plugin.yaml` `session`:
 
 - **SessionStart** — *"Introduce configurator capabilities"*: a static `echo`
   block orienting the agent that it can design/configure Orchestra
-  meta-processes, and instructing it to invoke `/system-model` first.
-- **PreToolUse** — *"Block direct skill installation"* (`blocking: true`):
-  greps `$CLAUDE_TOOL_INPUT` for `skills add` / `npx skills add` and **exits 2**
-  if found, with the message to use `npx skills find` to *search* and then adapt
-  content into workspace-repo format instead of installing. This guardrail is the
-  enforcement behind the `find-external-skills` / `adapt-external-skill` workflow.
+  meta-processes, and instructing it to invoke
+  `/workers-configurator:system-model` first.
+- **PreToolUse** — *"Block direct skill installation"*: reads the tool call
+  Claude Code sends on stdin (`.tool_input.command`, with `jq`), and **exits
+  2** when a command runs `skills add` (`npx skills add`, `npx -y skills
+  add`, on any line), with the message to use `npx skills find` to *search*
+  and then adapt content into workspace-repo format instead of installing.
+  This guardrail is the enforcement behind the `find-external-skills` /
+  `adapt-external-skill` workflow. It used to read `$CLAUDE_TOOL_INPUT`,
+  which Claude Code never sets, so until 2026-10 it never fired. Every
+  non-Bash tool passes (it has no `command`).
 
 ### The `system-model` skill
 

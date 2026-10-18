@@ -133,7 +133,7 @@ flows: [my-flow]                       # DAGs owned by this plugin
 **Process fields:**
 - `flows` — flow names. YAML files must exist in `plugins/{name}/flows/`.
 
-**SessionStart hook as capability introduction:** Plugins that provide meaningful capabilities should include a SessionStart hook that briefly orients the agent — what abilities this plugin gives and which skill to invoke first for context. Keep it concise: 2-3 sentences, no lists of individual capabilities. Point to the primary knowledge skill (e.g., `/system-model`).
+**SessionStart hook as capability introduction:** Plugins that provide meaningful capabilities should include a SessionStart hook that briefly orients the agent — what abilities this plugin gives and which skill to invoke first for context. Keep it concise: 2-3 sentences, no lists of individual capabilities. Point to the primary knowledge skill plugin-qualified (e.g., `/workers-configurator:system-model`).
 
 **What plugins do NOT contain:** tasks (referenced by flows), context (comes from runner), inline MCP definitions (use entities), inline skill content (use file refs).
 

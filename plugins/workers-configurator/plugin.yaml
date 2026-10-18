@@ -24,12 +24,21 @@ session:
         command: |
           echo "You have the ability to design and configure autonomous agent capabilities in Orchestra — the meta-processes that define how agents work: plugins, roles, flows, tasks, and MCP entities."
           echo ""
-          echo "Start by invoking /system-model — it maps the entire system: entity types, how they connect, and how the runner assembles them into working agent sessions."
+          echo "Start by invoking the system-model skill (/workers-configurator:system-model) — it maps the entire system: entity types, how they connect, and how the runner assembles them into working agent sessions."
     PreToolUse:
       - name: "Block direct skill installation"
-        command: "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'skills\\s+add|npx\\s+(-y\\s+)?skills\\s+add'; then echo 'BLOCKED: Do not install skills directly. Use npx skills find to search, then adapt content into workspace repo format.' >&2; exit 2; fi"
-        blocking: true
-        message: "Do not run npx skills add — adapt skill content manually instead"
+        command: |
+          # Claude Code sends the tool call as JSON on stdin ($CLAUDE_TOOL_INPUT
+          # does not exist). Read it with jq directly; dash's echo would rewrite
+          # the JSON's backslash escapes. Only a Bash call has a command; every
+          # other tool passes.
+          CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null)
+          [ -n "$CMD" ] || exit 0
+          if printf '%s\n' "$CMD" | grep -qE '(^|[^[:alnum:]_-])skills[[:space:]]+add([[:space:]]|$)'; then
+            echo 'BLOCKED: Do not install skills directly. Use npx skills find to search, then adapt the content into the workspace repo format.' >&2
+            exit 2
+          fi
+          exit 0
 flows:
   - design-agent
   - flow-creation
