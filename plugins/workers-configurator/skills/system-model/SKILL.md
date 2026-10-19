@@ -109,26 +109,37 @@ name: my-plugin
 description: "What this plugin provides"
 session:
   mcp: [mcp-entity-name]              # tools available to the agent
-  skills: [skills/my-skill/SKILL.md]   # knowledge injected into .claude/skills/
+  skills: [skills/my-skill/SKILL.md]   # whole skill directory ships with the plugin
   capabilities: [my-task]              # task names compiled into SKILL.md
   hooks:                                # Claude Code lifecycle hooks
     SessionStart:
-      - matcher: "startup"
-        hooks:
-          - type: command
-            command: "cat context.md 2>/dev/null || true"
+      - name: "Orient the agent"
+        command: |
+          P="${CLAUDE_PROJECT_DIR:-.}"
+          cat "$P/context.md" 2>/dev/null || true
+    PreToolUse:
+      - name: "Guard one Bash command"
+        matcher: "Bash"
+        command: |
+          CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null)
+          case "$CMD" in *"rm -rf /"*) echo "BLOCKED: no." >&2; exit 2 ;; esac
+          exit 0
     Stop:
-      - hooks:
-          - type: command
-            command: "bash .claude/hooks/check.sh"
+      - name: "Require the report"
+        command: |
+          [ "$(jq -r '.stop_hook_active // false' 2>/dev/null)" = true ] && exit 0
+          T="${TWINKLE_TASK_DIR:-${CLAUDE_PROJECT_DIR:-.}/task}"
+          [ -f "$T/report.md" ] && exit 0
+          echo "BLOCKED: write $T/report.md before ending the session." >&2
+          exit 2
 flows: [my-flow]                       # DAGs owned by this plugin
 ```
 
 **Session fields:**
 - `mcp` — array of MCP entity names. Runner resolves to full definitions and registers sessions.
-- `skills` — file paths relative to plugin dir. Placed in `.claude/skills/` with plugin-name prefix.
-- `capabilities` — array of task names. Runner compiles each task into a SKILL.md and injects at session start. Agent uses them as process guides based on trigger.
-- `hooks` — Map of event → array of `{name, command}` entries. `name` is required (human-readable label shown in UI). Events: SessionStart, Stop, PreToolUse, PostToolUse. Stop hooks block via exit code 2 + stderr + optional `blocking: true` + `message`. SessionStart stdout is injected as agent context.
+- `skills` — file paths relative to the plugin dir. The whole skill directory (with `references/`, `scripts/`) becomes `skills/<skill>/` of a real Claude Code plugin, invoked as `/<plugin>:<skill>`. Every SKILL.md needs `name` and `description` frontmatter.
+- `capabilities` — array of task names. Flows compiles each task into a SKILL.md inside the same plugin. Agent uses them as process guides based on trigger.
+- `hooks` — map of event → array of `{name, command, matcher?}` entries. `name` is required (shown in the UI); `matcher` selects the tool for `PreToolUse`/`PostToolUse` (e.g. `"Bash"`). Events: SessionStart, Stop, PreToolUse, PostToolUse. The hook payload arrives as JSON on stdin — read it with `jq` directly, never through `echo`. A hook blocks by `exit 2` with its message on stderr; `blocking`/`message` are deprecated no-ops. Paths: the repository is `$CLAUDE_PROJECT_DIR`, the task directory `$TWINKLE_TASK_DIR` — never the cwd. Stop hooks check `stop_hook_active` first. SessionStart stdout is injected as agent context.
 
 **Process fields:**
 - `flows` — flow names. YAML files must exist in `plugins/{name}/flows/`.
@@ -270,7 +281,7 @@ terminal_state:
 hooks:                       # optional, deterministic shell checks
   SessionStart:
     - name: "Load test fixtures"
-      command: "cat task/fixtures.md 2>/dev/null || true"
+      command: "cat \"${TWINKLE_TASK_DIR:-task}/fixtures.md\" 2>/dev/null || true"
   Stop:
     - name: "Run tests"
       command: "npm test"

@@ -27,6 +27,7 @@ session:
           echo "Start by invoking the system-model skill (/workers-configurator:system-model) — it maps the entire system: entity types, how they connect, and how the runner assembles them into working agent sessions."
     PreToolUse:
       - name: "Block direct skill installation"
+        matcher: "Bash"
         command: |
           # Claude Code sends the tool call as JSON on stdin ($CLAUDE_TOOL_INPUT
           # does not exist). Read it with jq directly; dash's echo would rewrite
