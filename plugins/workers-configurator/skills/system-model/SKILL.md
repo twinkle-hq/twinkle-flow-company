@@ -439,14 +439,13 @@ service has one: `telegram-chat` is reached through the task, not through MCP, s
 
 When a worker starts and picks up a task, the runner:
 
-1. **Plugin resolution** — reads worker's plugin list from config-service
-2. **MCP registration** — collects all `session.mcp` references across plugins, resolves to MCP entity definitions, registers sessions with each tool service
-3. **Skill injection** — copies all `session.skills` files into `.claude/skills/` with plugin-name prefix
-4. **Hook merge** — merges all `session.hooks` across plugins into `.claude/settings.json`
-5. **Flow trigger activation** — registers triggers from all plugin flows, scoped to this worker instance
-6. **Session start** — injects task context (flow contract or Linear ticket) via SessionStart hook
-7. **Session end** — Stop hook validates result.md exists and outputs are present (for flow tasks)
-8. **Output upload** — extracts outputs from result.md frontmatter, uploads as Linear documents
+1. **Plugin resolution** — flows resolves the session's plugins (force-attach + the worker's plugins + a flow job's add/remove) and builds a per-run bundle: one Claude Code plugin per flows plugin, plus `flow-task` for a flow task's phase skills and hooks.
+2. **MCP registration** — the runner registers a session with each MCP service the plugins reference and writes the result to a run-scoped `mcp.json`, passed with `--mcp-config`; server names stay bare (`mcp__journal-mcp__*`).
+3. **Session start** — `claude -p` runs in the repository (`/work`) with `--plugin-dir /twinkle/plugins`, the task directory at `/task`, and the result gate in managed settings. The repository's own CLAUDE.md, settings, hooks, skills and `.mcp.json` load as well; nothing is written into it.
+4. **Readiness** — the runner checks the session's `init` event: every bundle plugin, the result skill and every runner MCP server present.
+5. **Session end** — the plugins' Stop gates and the result gate run together in one round.
+6. **Output upload** — the runner reads `result.md` from the task directory, validates it against the result contract, uploads declared files.
+7. **Flow trigger activation** — triggers from the worker's plugin flows are registered per worker instance (unchanged).
 
 ## Inspecting & Validating Entities
 
