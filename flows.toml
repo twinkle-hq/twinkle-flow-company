@@ -12,4 +12,4 @@ roles = "*"
 # view. This does NOT silence the repo-local `flows lint` cross-repo warnings —
 # .flows-lint.yaml handles those.
 [dependencies]
-"twinkle-hq/twinkle-flow-core" = "v0.1.1"
+"twinkle-hq/twinkle-flow-core" = "v0.1.2"
